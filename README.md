@@ -63,6 +63,14 @@ Its arguments are `pkgs`, `src` and `fetchers`, and the arguments that
 `srcFilter`. `fetchers` replaces fetchers of the purifier library, such as
 `fetchurl` with one that sends credentials to a company mirror.
 
+`lib.yarn-classic-purifier.readLock { src, yarnLock ? ..., lockFile ? ... }`
+reads `yarn.lock` and the purifier lockfile into the lock in memory of the
+purifier contract: `entries` (the library's download entries), `outputs`
+(the project's packages), and `problems` (why the lockfiles cannot be
+used, each naming the command that fixes it). The builder checks it with
+the library's `checkLock`, and tools that read what every purifier
+downloads, such as an SBOM generator, can call it directly.
+
 A packaging flake can build a project it does not change. It keeps the
 purifier lockfile in its own tree and passes it as `lockFile`, and passes
 `yarnLock` too when the project has no `yarn.lock`. A file given this way

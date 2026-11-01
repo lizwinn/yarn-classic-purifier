@@ -71,42 +71,53 @@ let
     in
     if values == [ ] then null else builtins.head values;
 
+  purifierLock = if lockFile == null then null else lib.importJSON lockFile;
+  lockName = baseNameOf (toString lockFile);
+
+  # Why the purifier lockfile cannot be used, or null.
+  lockProblem =
+    let
+      lock = purifierLock;
+      name = lockName;
+      # Each package records the `resolved` field of its yarn.lock entry
+      # and the hash of its tarball or checkout.
+      invalid = builtins.filter (
+        p:
+        !(
+          builtins.isAttrs p && builtins.isString (p.resolved or null) && builtins.isString (p.hash or null)
+        )
+      ) lock.packages;
+    in
+    if lock == null then
+      null
+    else if !(builtins.isAttrs lock) then
+      "yarn-classic-purifier: ${name} holds no JSON object. Run `yarn-classic-purifier lock`."
+    else if lock.version or null != 1 then
+      "yarn-classic-purifier: ${name} has version ${
+        builtins.toJSON (lock.version or null)
+      }; this version of yarn-classic-purifier reads version 1. Run `yarn-classic-purifier lock`."
+    else if !(builtins.isString (lock.contentHash or null)) then
+      "yarn-classic-purifier: ${name} lacks its `contentHash`. Run `yarn-classic-purifier lock`."
+    else if lock.contentHash != sha256 (builtins.toJSON (removeAttrs lock [ "contentHash" ])) then
+      "yarn-classic-purifier: ${name} was changed after `yarn-classic-purifier lock` wrote it: its content does not match its contentHash. Run `yarn-classic-purifier lock`."
+    else if lock.inputsHash or null != sha256 text then
+      "yarn-classic-purifier: yarn.lock changed since ${name} was written. Run `yarn-classic-purifier lock`."
+    else if !(builtins.isList (lock.packages or null)) then
+      "yarn-classic-purifier: ${name} lacks its `packages` list. Run `yarn-classic-purifier lock`."
+    else if invalid != [ ] then
+      "yarn-classic-purifier: ${name} has a malformed package entry for ${
+        builtins.toJSON ((builtins.head invalid).resolved or null)
+      }. Run `yarn-classic-purifier lock`."
+    else
+      null;
+
+  # The purifier lockfile's packages by `resolved`, or none when it cannot
+  # be used.
   extra =
-    if lockFile == null then
+    if purifierLock == null || lockProblem != null then
       { }
     else
-      let
-        lock = lib.importJSON lockFile;
-        name = baseNameOf (toString lockFile);
-        # Each package records the `resolved` field of its yarn.lock entry
-        # and the hash of its tarball or checkout.
-        invalid = builtins.filter (
-          p:
-          !(
-            builtins.isAttrs p && builtins.isString (p.resolved or null) && builtins.isString (p.hash or null)
-          )
-        ) lock.packages;
-      in
-      if !(builtins.isAttrs lock) then
-        throw "yarn-classic-purifier: ${name} holds no JSON object. Run `yarn-classic-purifier lock`."
-      else if lock.version or null != 1 then
-        throw "yarn-classic-purifier: ${name} has version ${
-          builtins.toJSON (lock.version or null)
-        }; this version of yarn-classic-purifier reads version 1. Run `yarn-classic-purifier lock`."
-      else if !(builtins.isString (lock.contentHash or null)) then
-        throw "yarn-classic-purifier: ${name} lacks its `contentHash`. Run `yarn-classic-purifier lock`."
-      else if lock.contentHash != sha256 (builtins.toJSON (removeAttrs lock [ "contentHash" ])) then
-        throw "yarn-classic-purifier: ${name} was changed after `yarn-classic-purifier lock` wrote it: its content does not match its contentHash. Run `yarn-classic-purifier lock`."
-      else if lock.inputsHash or null != sha256 text then
-        throw "yarn-classic-purifier: yarn.lock changed since ${name} was written. Run `yarn-classic-purifier lock`."
-      else if !(builtins.isList (lock.packages or null)) then
-        throw "yarn-classic-purifier: ${name} lacks its `packages` list. Run `yarn-classic-purifier lock`."
-      else if invalid != [ ] then
-        throw "yarn-classic-purifier: ${name} has a malformed package entry for ${
-          builtins.toJSON ((builtins.head invalid).resolved or null)
-        }. Run `yarn-classic-purifier lock`."
-      else
-        lib.listToAttrs (map (e: lib.nameValuePair e.resolved e) lock.packages);
+      lib.listToAttrs (map (e: lib.nameValuePair e.resolved e) purifierLock.packages);
 
   splitResolved =
     resolved:
@@ -262,7 +273,9 @@ let
       null
     else if isGit url then
       if fragment == null then
-        throw "yarn-classic-purifier: ${builtins.head lines} resolves to ${resolved}, which names no commit."
+        {
+          problem = "yarn-classic-purifier: ${builtins.head lines} in yarn.lock resolves to ${resolved}, which names no commit. Run `yarn install` with Yarn Classic to write the commit into yarn.lock.";
+        }
       else
         gitEntry resolved url fragment recorded
     else
@@ -293,6 +306,7 @@ let
         };
 
   results = builtins.filter (r: r != null) (map entryDownload entries);
+  missing = lib.unique (map (r: r.missing) (builtins.filter (r: r ? missing) results));
 in
 {
   # Several entries can name the same file; the mirror holds it once.
@@ -301,5 +315,22 @@ in
       map (r: lib.nameValuePair r.download.path r.download) (builtins.filter (r: r ? download) results)
     )
   );
-  missing = lib.unique (map (r: r.missing) (builtins.filter (r: r ? missing) results));
+  inherit missing;
+  # Why the lockfiles cannot be used, each naming the command that fixes
+  # it. A purifier lockfile that cannot be used makes every package it
+  # would record missing, so its problem stands alone.
+  problems =
+    if lockProblem != null then
+      [ lockProblem ]
+    else
+      map (r: r.problem) (builtins.filter (r: r ? problem) results)
+      ++ lib.optional (missing != [ ]) ''
+        yarn-classic-purifier: ${
+          if lockFile == null then
+            "the project has no yarn-classic-purifier.lock.json, and nothing records"
+          else
+            "${lockName} records nothing for"
+        } these packages:
+          ${lib.concatMapStringsSep "\n  " (m: m.resolved) missing}
+        Run `yarn-classic-purifier lock` in the project to record them.'';
 }

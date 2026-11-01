@@ -26,9 +26,11 @@
 #                     and `yarn pack`: one tarball per package of the
 #                     project, the files `yarn-classic-purifier publish`
 #                     uploads
-#   fetches           the entries of the purifier library that the build
-#                     fetches, including those of the repositories of git
-#                     dependencies with a `prepare` script
+#   fetches           the `entries` of the lock in memory: the entries of
+#                     the purifier library that the build fetches; a git
+#                     entry for a repository with a `prepare` script carries
+#                     the entries of the repository's yarn.lock in
+#                     `downloads`
 {
   # The `purifier` namespace of the shared library.
   purifier,
@@ -86,16 +88,14 @@ let
     autoPatchelfHook
     ;
 
-  lock = import ./lock.nix { inherit lib yarnLock lockFile; };
-
-  downloads =
-    if lock.missing != [ ] then
-      throw ''
-        yarn-classic-purifier: yarn-classic-purifier.lock.json records nothing for these packages:
-          ${lib.concatMapStringsSep "\n  " (m: m.resolved) lock.missing}
-        Run `yarn-classic-purifier lock` in the project to record them.''
-    else
-      lock.downloads;
+  # The lock in memory (nix/lib/read-lock.nix). checkLock fails evaluation
+  # with its problems, each naming the command that fixes it.
+  lock = purifier.checkLock (
+    import ./read-lock.nix { inherit lib; } {
+      inherit src yarnLock lockFile;
+    }
+  );
+  downloads = purifier.entriesFor stdenv.hostPlatform.system lock;
 
   ownPackageSet = import ./workspaces.nix { inherit lib src; };
   ownPackages = builtins.attrValues ownPackageSet;
@@ -121,10 +121,6 @@ let
       fetchers
       ;
   };
-
-  # The entries of the git dependencies with a `prepare` script carry the
-  # entries of their repositories' own yarn.lock files.
-  allEntries = entries: lib.concatMap (e: [ e ] ++ allEntries (e.downloads or [ ])) entries;
 
   # The file name of a package's tarball in `release`.
   tarballName = p: (builtins.replaceStrings [ "@" "/" ] [ "" "__" ] p.name) + ".tgz";
@@ -337,5 +333,5 @@ in
     install = "touch $out";
   };
   release = build;
-  fetches = allEntries downloads;
+  fetches = lock.entries;
 }

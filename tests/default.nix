@@ -132,17 +132,18 @@ let
   # fixture's yarn.lock with another purifier lockfile fails evaluation.
   remoteYarnLock = builtins.readFile ./fixtures/remote/yarn.lock;
   remoteLock = lib.importJSON ./fixtures/remote/yarn-classic-purifier.lock.json;
+  # A lock in memory is unusable when it has problems, and each problem
+  # names the command that fixes it.
+  namesTheFix =
+    problems:
+    problems != [ ] && builtins.all (lib.hasInfix "Run `yarn-classic-purifier lock`") problems;
   lockFails =
     lock:
-    !(builtins.tryEval (
-      builtins.deepSeq
-        (import ../nix/lib/lock.nix {
-          inherit lib;
-          yarnLock = ./fixtures/remote/yarn.lock;
-          lockFile = toLockFile lock;
-        }).downloads
-        true
-    )).success;
+    namesTheFix
+      (yarn-classic-purifier.readLock {
+        src = ./fixtures/remote;
+        lockFile = toLockFile lock;
+      }).problems;
 in
 {
   # A purifier lockfile written for another yarn.lock fails evaluation,
@@ -176,7 +177,25 @@ in
     in
     evalCheck "conformance-missing" (
       !result.success
+      &&
+        namesTheFix
+          (yarn-classic-purifier.readLock {
+            src = ./fixtures/remote;
+            lockFile = null;
+          }).problems
     ) "a project with an unrecorded git dependency evaluated";
+
+  # The lock in memory has the shape of the purifier contract, and the
+  # remote fixture's names its package and its locked entries.
+  read-lock =
+    let
+      lock = purifier.checkLock (yarn-classic-purifier.readLock { src = ./fixtures/remote; });
+    in
+    evalCheck "read-lock" (
+      lock.purifier == "yarn-classic-purifier"
+      && builtins.attrNames lock.outputs == [ "remote-dependencies" ]
+      && builtins.length lock.entries == 3
+    ) "the lock in memory of the remote fixture is ${builtins.toJSON (map (e: e.path) lock.entries)}";
 
   # Malformed purifier lockfiles fail evaluation, naming
   # `yarn-classic-purifier lock`: one that holds no object, one without its
