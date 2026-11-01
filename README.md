@@ -1,47 +1,111 @@
 # yarn-classic-purifier
 
-A Nix builder and a Yarn wrapper for projects that use Yarn Classic (Yarn 1)
-and its `yarn.lock`. Nix builds the project in its sandbox from what
-`yarn.lock` records, and the project needs no Nix files of its own.
+yarn-classic-purifier keeps Yarn Classic's development workflow on locked,
+Nix-resolved dependencies. Use the normal build and test commands in your
+working tree; building the project itself in the Nix sandbox is an
+optional next step.
+
+It follows the [purifier contract](https://github.com/nix-purifiers/purifier/blob/main/CONTRACT.md).
 
 For Yarn 2 and later, use
 [yarn-berry-purifier](https://github.com/nix-purifiers/yarn-berry-purifier).
 
+## Installation
+
+Install the integration into your Nix profile once:
+
+```sh
+nix profile install 'github:nix-purifiers/yarn-classic-purifier#yarn' 'github:nix-purifiers/yarn-classic-purifier#yarn-classic-purifier'
+```
+
+This installs the `yarn` wrapper. Use it for the locked
+development workflow below. The native lockfile can supply the complete
+download record; a separate purifier lock is needed for the cases described
+below. With no usable lockfile, the wrapper warns on standard error and
+runs the ordinary tool with impure resolution.
+
+`nix shell` makes an integration available temporarily instead of installing
+it. Keep using the activation steps below where a project environment or
+prefetched cache is required.
+
 ## Quickstart
 
-Lock the project once, in its root:
+Install Nix, then run the following from your existing project's root.
+The setup prepares the locked dependencies and the integration that
+Yarn Classic's normal commands use:
 
 ```zsh
-nix run 'github:nix-purifiers/yarn-classic-purifier#yarn-classic-purifier' -- lock
+nix develop github:nix-purifiers/yarn-classic-purifier
+yarn-classic-purifier lock
+yarn install
+yarn run build
+yarn test
 ```
 
-The command writes `yarn-classic-purifier.lock.json` only when `yarn.lock`
-leaves something out. We recommend committing both lockfiles to the
-project's repository, where the builder and the commands look for them by
-default. A project whose packages all come from a registry has no purifier
-lockfile.
+Commit the lockfiles that the lock command writes, including the build
+tool's own lockfile when it has one. Keep using the project's usual build,
+test and editor commands with this setup. Nix provides the locked
+dependencies; the development commands above run outside the Nix sandbox.
+No project Nix files are needed for this workflow.
 
-Then build the project from its directory. The command adds no Nix file to
-the project; replace `my-app` with the name of a package of the project:
+Sandboxed builds of the whole project are an optional
+[next step](#building-the-project-with-nix).
 
-```zsh
-nix build --impure --expr '
-  let
-    purifier = builtins.getFlake "github:nix-purifiers/yarn-classic-purifier";
-    pkgs = import purifier.inputs.nixpkgs {
-      system = builtins.currentSystem;
-      overlays = [ purifier.overlays.default ];
-    };
-  in
-  (pkgs.yarn-classic-purifier.buildYarnClassicProject { src = ./.; }).packages.my-app'
-```
+## Development loop
 
-This uses the purifier's pinned nixpkgs, matching the lock command above.
-To build with ambient `<nixpkgs>` from your Nix search path instead,
-replace `import purifier.inputs.nixpkgs` with `import <nixpkgs>`.
-Both forms need no Nix files in your project. The build tool and language
-versions must match the lockfile; with ambient nixpkgs, lock with the
-purifier from that package set or pass a compatible toolchain to the builder.
+The development loop is Yarn itself, through the flake's `yarn` wrapper:
+`yarn install`, `yarn run build` and `yarn test`.
+`nix develop github:nix-purifiers/yarn-classic-purifier` gives a shell with
+the wrapper, the `yarn-classic-purifier` command and Node.js.
+
+In a project with a `yarn.lock`, the wrapper builds the same offline mirror
+that a sandboxed build uses, through Nix, under `.yarn-classic-purifier` in
+the project, and runs Yarn offline against it. It rebuilds the mirror when a
+lockfile changes. The commands that change `yarn.lock` (`add`, `upgrade`,
+`upgrade-interactive`, `remove` and `import`) resolve against the registry,
+as Yarn does without the wrapper; run `yarn-classic-purifier lock`
+afterwards.
+
+`yarn-classic-purifier update [<package>...]` updates both lockfiles in one
+run. It re-resolves the named packages, or all of them, with
+`yarn upgrade`, within the ranges that `package.json` declares, and then
+locks the purifier lockfile against the new `yarn.lock`.
+`yarn-classic-purifier lock` keeps Yarn's resolution as `yarn.lock` holds
+it, and writes a `yarn.lock` only for a project that has none, by running
+`yarn install` without scripts.
+
+Yarn Classic has no plugin mechanism, so `yarn-classic-purifier` is a
+standalone command and the `yarn` wrapper is a script around Yarn.
+
+`YARN_CLASSIC_PURIFIER=0` turns the wrapper off. The purifier lockfile lies
+beside `yarn.lock` by default. For lockfiles kept outside the repository,
+the commands take `--lockfile <path>` for the purifier lockfile and
+`--tool-lockfile <path>` for `yarn.lock`, or the environment variables
+`YARN_CLASSIC_PURIFIER_LOCKFILE` and `YARN_CLASSIC_PURIFIER_TOOL_LOCKFILE`.
+The wrapper takes the variables, and a flag takes precedence over its
+variable. The dev shell of a flake that passes `lockFile` and `yarnLock` to
+the builder can set the variables to the same paths. With a tool lockfile,
+`lock` and `update` write the `yarn.lock` there and leave the project's own
+copy as it is, starting from that copy when the tool lockfile does not
+exist yet. The development loop itself runs Yarn on the project's own
+`yarn.lock`, so an external build suits a project that one packages without
+developing it.
+
+The install runs the dependencies' install scripts and the project's own
+lifecycle scripts, as `yarn install` does. In the sandbox it first patches
+the interpreters of scripts and the dynamic loader of prebuilt Linux
+binaries in packages, such as Flow's, because the sandbox has neither
+`/usr/bin/env` nor `/lib64/ld-linux`. node-gyp builds native addons
+against the headers of the Node.js that runs Yarn. A library that a native
+addon links against goes in `buildInputs`.
+
+## Building the project with Nix
+
+Once the native development workflow is working, you can also build and
+test the whole project in the Nix sandbox. For this step, keep a flake or
+another Nix build definition in the project's repository, or maintain an
+external packaging repository that points at its sources and lockfiles.
+The builder consumes the same lockfiles as the development workflow.
 
 The flake's `overlays.default` adds one attribute to a package set: the
 scope `yarn-classic-purifier`, made with `lib.makeScope`. The scope holds
@@ -116,53 +180,29 @@ given this way replaces any copy in `src`. The commands take
 `--lockfile <path>` for the purifier lockfile and `--tool-lockfile <path>`
 for `yarn.lock`; the Development loop section describes them.
 
-## Development loop
+### One-off builds without a project Nix file
 
-The development loop is Yarn itself, through the flake's `yarn` wrapper:
-`yarn install`, `yarn run build` and `yarn test`.
-`nix develop github:nix-purifiers/yarn-classic-purifier` gives a shell with
-the wrapper, the `yarn-classic-purifier` command and Node.js.
+For an ad hoc build, the builder can also be evaluated directly from the
+project root. Replace the example package name with one from your project:
 
-In a project with a `yarn.lock`, the wrapper builds the same offline mirror
-that a sandboxed build uses, through Nix, under `.yarn-classic-purifier` in
-the project, and runs Yarn offline against it. It rebuilds the mirror when a
-lockfile changes. The commands that change `yarn.lock` (`add`, `upgrade`,
-`upgrade-interactive`, `remove` and `import`) resolve against the registry,
-as Yarn does without the wrapper; run `yarn-classic-purifier lock`
-afterwards.
+```zsh
+nix build --impure --expr '
+  let
+    purifier = builtins.getFlake "github:nix-purifiers/yarn-classic-purifier";
+    pkgs = import purifier.inputs.nixpkgs {
+      system = builtins.currentSystem;
+      overlays = [ purifier.overlays.default ];
+    };
+  in
+  (pkgs.yarn-classic-purifier.buildYarnClassicProject { src = ./.; }).packages.my-app'
+```
 
-`yarn-classic-purifier update [<package>...]` updates both lockfiles in one
-run. It re-resolves the named packages, or all of them, with
-`yarn upgrade`, within the ranges that `package.json` declares, and then
-locks the purifier lockfile against the new `yarn.lock`.
-`yarn-classic-purifier lock` keeps Yarn's resolution as `yarn.lock` holds
-it, and writes a `yarn.lock` only for a project that has none, by running
-`yarn install` without scripts.
-
-Yarn Classic has no plugin mechanism, so `yarn-classic-purifier` is a
-standalone command and the `yarn` wrapper is a script around Yarn.
-
-`YARN_CLASSIC_PURIFIER=0` turns the wrapper off. The purifier lockfile lies
-beside `yarn.lock` by default. For lockfiles kept outside the repository,
-the commands take `--lockfile <path>` for the purifier lockfile and
-`--tool-lockfile <path>` for `yarn.lock`, or the environment variables
-`YARN_CLASSIC_PURIFIER_LOCKFILE` and `YARN_CLASSIC_PURIFIER_TOOL_LOCKFILE`.
-The wrapper takes the variables, and a flag takes precedence over its
-variable. The dev shell of a flake that passes `lockFile` and `yarnLock` to
-the builder can set the variables to the same paths. With a tool lockfile,
-`lock` and `update` write the `yarn.lock` there and leave the project's own
-copy as it is, starting from that copy when the tool lockfile does not
-exist yet. The development loop itself runs Yarn on the project's own
-`yarn.lock`, so an external build suits a project that one packages without
-developing it.
-
-The install runs the dependencies' install scripts and the project's own
-lifecycle scripts, as `yarn install` does. In the sandbox it first patches
-the interpreters of scripts and the dynamic loader of prebuilt Linux
-binaries in packages, such as Flow's, because the sandbox has neither
-`/usr/bin/env` nor `/lib64/ld-linux`. node-gyp builds native addons
-against the headers of the Node.js that runs Yarn. A library that a native
-addon links against goes in `buildInputs`.
+This uses the purifier's pinned nixpkgs, matching the lock command above.
+To build with ambient `<nixpkgs>` from your Nix search path instead,
+replace `import purifier.inputs.nixpkgs` with `import <nixpkgs>`.
+Both forms need no Nix files in your project. The build tool and language
+versions must match the lockfile; with ambient nixpkgs, lock with the
+purifier from that package set or pass a compatible toolchain to the builder.
 
 ## Working offline
 
@@ -247,6 +287,11 @@ Limitations:
   checker have no aarch64-linux binary.
 
 ## Examples
+
+For day-to-day work on these projects, use the native-tool setup and
+commands in [Quickstart](#quickstart) and [Development loop](#development-loop).
+The Nix expressions below show optional sandboxed packaging of those
+projects.
 
 ### immer
 

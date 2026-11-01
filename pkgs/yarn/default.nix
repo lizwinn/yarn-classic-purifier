@@ -59,20 +59,21 @@ writeShellApplication {
           ;;
       esac
     done
+    # The project root is the nearest directory upwards with a lockfile.
+    dir="$PWD"
+    while [ ! -f "$dir/yarn.lock" ]; do
+      if [ "$dir" = / ]; then
+        echo "yarn-classic-purifier: warning: no yarn.lock found; running yarn impurely. Run \`yarn-classic-purifier lock\` to use Nix-resolved dependencies." >&2
+        exec "$yarn" "$@"
+      fi
+      dir="$(dirname "$dir")"
+    done
+
     case "$command" in
       add | upgrade | upgrade-interactive | remove | import | generate-lock-entry)
         exec "$yarn" "$@"
         ;;
     esac
-
-    # The project root is the nearest directory upwards with a lockfile.
-    dir="$PWD"
-    while [ ! -f "$dir/yarn.lock" ]; do
-      if [ "$dir" = / ]; then
-        exec "$yarn" "$@"
-      fi
-      dir="$(dirname "$dir")"
-    done
 
     ${import ../../nix/lib/mirror-script.nix {
       flake = ../..;
