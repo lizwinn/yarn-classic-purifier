@@ -190,15 +190,21 @@ Limitations:
   Bitbucket needs credentials that the sandbox does not have. The purifier
   fetches the https URL for those three hosts.
 
-## Real-world projects
+## Examples
 
-- immer at `75a290e44ba14bd723c8ef8546b6559c8ef3ae88` (1,278 locked
-  tarballs, no purifier lockfile needed) builds and passes its test suite in
-  the sandbox, and a flake check builds it on both systems. On
-  x86_64-linux the tests are vitest, the tests of the built package and
-  Flow. The flow-bin 0.123 that immer pins has no aarch64-linux binary, so
-  on aarch64-linux the tests leave Flow out. Flow's prebuilt binary is why
-  the install patches binaries.
+CI builds these projects from their own `yarn.lock`, as examples of what
+the purifier handles. They are not a full list of the projects that work.
+
+- immer at `75a290e44ba14bd723c8ef8546b6559c8ef3ae88` needs no purifier
+  lockfile, because its `yarn.lock` records every tarball. A flake check
+  builds it and runs its tests on both systems. On x86_64-linux the tests
+  are vitest, the tests of the built package and Flow. The flow-bin 0.123
+  that immer pins has no aarch64-linux binary, so on aarch64-linux the tests
+  leave Flow out. Flow's prebuilt binary is why the install patches
+  binaries.
+- `tests/fixtures/remote` locks a git dependency and a GitHub tarball, and
+  `tests/fixtures/git-prepare` locks a git dependency whose repository has
+  a `prepare` script. CI relocks the first and builds both.
 
 ## Credits
 
