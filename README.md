@@ -12,7 +12,7 @@ For Yarn 2 and later, use
 Lock the project once, in its root:
 
 ```zsh
-nix run github:nix-purifiers/yarn-classic-purifier#yarn-classic-purifier -- lock
+nix run 'github:nix-purifiers/yarn-classic-purifier#yarn-classic-purifier' -- lock
 ```
 
 The command writes `yarn-classic-purifier.lock.json` only when `yarn.lock`
@@ -35,6 +35,13 @@ nix build --impure --expr '
   in
   (pkgs.yarn-classic-purifier.buildYarnClassicProject { src = ./.; }).packages.my-app'
 ```
+
+This uses the purifier's pinned nixpkgs, matching the lock command above.
+To build with ambient `<nixpkgs>` from your Nix search path instead,
+replace `import purifier.inputs.nixpkgs` with `import <nixpkgs>`.
+Both forms need no Nix files in your project. The build tool and language
+versions must match the lockfile; with ambient nixpkgs, lock with the
+purifier from that package set or pass a compatible toolchain to the builder.
 
 The flake's `overlays.default` adds one attribute to a package set: the
 scope `yarn-classic-purifier`, made with `lib.makeScope`. The scope holds
@@ -250,7 +257,7 @@ and lock it:
 ```zsh
 git clone https://github.com/immerjs/immer
 cd immer
-nix run github:nix-purifiers/yarn-classic-purifier#yarn-classic-purifier -- lock
+nix run 'github:nix-purifiers/yarn-classic-purifier#yarn-classic-purifier' -- lock
 ```
 
 immer's `yarn.lock` records every tarball, so the command reports that no
@@ -273,7 +280,7 @@ To work on it, fetch everything that development needs, and use Yarn as
 usual from the dev shell:
 
 ```zsh
-nix run github:nix-purifiers/yarn-classic-purifier#yarn-classic-purifier -- prefetch
+nix run 'github:nix-purifiers/yarn-classic-purifier#yarn-classic-purifier' -- prefetch
 nix develop github:nix-purifiers/yarn-classic-purifier
 yarn install
 yarn build
@@ -320,7 +327,7 @@ A project with a GitHub or git dependency needs the purifier lockfile. In
 the project, run the lock command and commit both lockfiles:
 
 ```zsh
-nix run github:nix-purifiers/yarn-classic-purifier#yarn-classic-purifier -- lock
+nix run 'github:nix-purifiers/yarn-classic-purifier#yarn-classic-purifier' -- lock
 git add yarn.lock yarn-classic-purifier.lock.json
 ```
 
@@ -330,7 +337,7 @@ A flake that packages someone else's project can keep both lockfiles in its
 own tree. In a clone of the project, run:
 
 ```zsh
-nix run github:nix-purifiers/yarn-classic-purifier#yarn-classic-purifier -- lock --lockfile ../packaging/my-project.lock.json --tool-lockfile ../packaging/my-project.yarn.lock
+nix run 'github:nix-purifiers/yarn-classic-purifier#yarn-classic-purifier' -- lock --lockfile ../packaging/my-project.lock.json --tool-lockfile ../packaging/my-project.yarn.lock
 ```
 
 The clone's own `yarn.lock` stays as it is, and the new `yarn.lock` starts
