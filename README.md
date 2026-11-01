@@ -107,7 +107,12 @@ afterwards.
 run. It re-resolves the named packages, or all of them, with
 `yarn upgrade`, within the ranges that `package.json` declares, and then
 locks the purifier lockfile against the new `yarn.lock`.
-`yarn-classic-purifier lock` keeps Yarn's resolution as it is.
+`yarn-classic-purifier lock` keeps Yarn's resolution as `yarn.lock` holds
+it, and writes a `yarn.lock` only for a project that has none, by running
+`yarn install` without scripts.
+
+Yarn Classic has no plugin mechanism, so `yarn-classic-purifier` is a
+standalone command and the `yarn` wrapper is a script around Yarn.
 
 `YARN_CLASSIC_PURIFIER=0` turns the wrapper off. The purifier lockfile lies
 beside `yarn.lock` by default. For a lockfile kept elsewhere, the commands
@@ -194,6 +199,7 @@ Limitations:
   fit the platform, and `yarn.lock` does not record a package's platforms.
   The mirror therefore holds the optional packages of every platform, such as
   all of esbuild's per-platform binaries, and it is the same on every system.
+  No entry of the lock in memory carries `systems` for that reason.
 - A project whose `.yarnrc` or `.npmrc` sets `yarn-offline-mirror` gets the
   locked tarballs in that directory during a build. The wrapper leaves such a
   project's mirror alone and warns that Yarn reads it.

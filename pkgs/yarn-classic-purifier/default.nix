@@ -75,7 +75,15 @@ writeShellApplication {
     dir="$PWD"
     while [ ! -f "$dir/yarn.lock" ]; do
       if [ "$dir" = / ]; then
-        echo "yarn-classic-purifier: no yarn.lock in $PWD or above it" >&2
+        if [ "$subcommand" = lock ] && [ -f "$PWD/package.json" ]; then
+          # A project without a yarn.lock gets the one Yarn writes. The
+          # lock command otherwise keeps Yarn's resolution as it is.
+          echo "yarn-classic-purifier: no yarn.lock in $PWD or above it; running yarn install to write one" >&2
+          (cd "$PWD" && ${lib.getExe yarnClassic} install --ignore-scripts --non-interactive --silent)
+          dir="$PWD"
+          break
+        fi
+        echo "yarn-classic-purifier: no yarn.lock in $PWD or above it. Run \`yarn-classic-purifier lock\` in a directory with a package.json to write one." >&2
         exit 1
       fi
       dir="$(dirname "$dir")"
