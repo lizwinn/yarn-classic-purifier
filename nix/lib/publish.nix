@@ -6,6 +6,8 @@
 # and the package name.
 {
   pkgs,
+  # The `purifier` namespace of the shared library.
+  purifier,
   # The project root.
   src,
   # The purifier lockfile, or null when the project has none.
@@ -14,7 +16,7 @@
   package,
 }:
 let
-  project = pkgs.callPackage ./build-yarn-classic-project.nix { } {
+  project = pkgs.callPackage ./build-yarn-classic-project.nix { inherit purifier; } {
     inherit src purifierLockFile;
   };
 in

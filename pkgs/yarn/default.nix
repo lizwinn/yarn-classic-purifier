@@ -82,6 +82,7 @@ writeShellApplication {
       YARN_CLASSIC_PURIFIER_LOCK="$lock" YARN_CLASSIC_PURIFIER_PURIFIER_LOCK="$purifierLock" \
         nix build --impure --out-link "$cache/mirror" --expr "
           import ${../../nix/lib}/interactive.nix {
+            purifier = (builtins.getFlake \"path:${../..}\").lib.purifier;
             pkgs = import ${path} { system = \"${stdenv.hostPlatform.system}\"; };
             lockFile = /. + builtins.getEnv \"YARN_CLASSIC_PURIFIER_LOCK\";
             purifierLockFile = $purifierLockExpr;

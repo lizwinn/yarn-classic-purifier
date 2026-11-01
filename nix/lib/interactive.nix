@@ -6,6 +6,8 @@
 # the lockfiles and keeps the result alive with a GC root.
 {
   pkgs,
+  # The `purifier` namespace of the shared library.
+  purifier,
   lockFile,
   purifierLockFile ? null,
 }:
@@ -21,4 +23,7 @@ if lock.missing != [ ] then
       ${pkgs.lib.concatMapStringsSep "\n  " (m: m.resolved) lock.missing}
     Run `yarn-classic-purifier lock` in the project to record them.''
 else
-  pkgs.callPackage ./offline-mirror.nix { inherit (lock) downloads; }
+  pkgs.callPackage ./offline-mirror.nix {
+    inherit (lock) downloads;
+    inherit purifier;
+  }

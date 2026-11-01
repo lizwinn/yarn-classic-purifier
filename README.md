@@ -11,7 +11,10 @@ yarn-classic-purifier follows the design of
 [sbt-nix-backend](https://github.com/nix-purifiers/sbt-purifier): the build
 tool keeps planning the build, a lockfile records every download, and Nix
 fetches the downloads and runs the build offline in its sandbox. Yarn
-Classic already writes most of that lockfile itself.
+Classic already writes most of that lockfile itself. The shared library
+of the nix-purifiers,
+[purifier](https://github.com/nix-purifiers/purifier), fetches the
+locked tarballs and git checkouts.
 
 ## How it works
 

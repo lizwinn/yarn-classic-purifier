@@ -159,6 +159,7 @@ writeShellApplication {
           YARN_CLASSIC_PURIFIER_PACKAGE="$package" \
           nix build --impure --no-link --print-out-paths --expr "
             import ${../../nix/lib}/publish.nix {
+              purifier = (builtins.getFlake \"path:${../..}\").lib.purifier;
               pkgs = $pkgs;
               src = /. + builtins.getEnv \"YARN_CLASSIC_PURIFIER_SRC\";
               purifierLockFile = $purifier;

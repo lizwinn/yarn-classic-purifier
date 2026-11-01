@@ -16,6 +16,8 @@ in
     final: prev:
     packages final prev
     // {
-      buildYarnClassicProject = final.callPackage ../../nix/lib/build-yarn-classic-project.nix { };
+      buildYarnClassicProject = final.callPackage ../../nix/lib/build-yarn-classic-project.nix {
+        inherit (closure-lib) purifier;
+      };
     };
 }

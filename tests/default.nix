@@ -6,6 +6,9 @@
   pkgs,
   # The flake's default package overlay, which adds buildYarnClassicProject.
   overlay,
+  # The `purifier` namespace of the shared library, from the flake's
+  # library.
+  purifier,
 }:
 let
   inherit (pkgs) lib;
@@ -319,6 +322,7 @@ in
   interactive =
     let
       mirror = import ../nix/lib/interactive.nix {
+        inherit purifier;
         inherit pkgs;
         lockFile = ./fixtures/app/yarn.lock;
       };
@@ -355,6 +359,7 @@ in
   publish-tarball =
     let
       tarball = import ../nix/lib/publish.nix {
+        inherit purifier;
         pkgs = withOverlay;
         src = ./fixtures/app;
         package = "hello-yarn";

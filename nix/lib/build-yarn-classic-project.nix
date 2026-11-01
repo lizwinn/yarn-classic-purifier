@@ -33,6 +33,9 @@
   lib,
   stdenv,
   callPackage,
+  # The `purifier` namespace of the shared library, which the overlay
+  # passes from the flake's library.
+  purifier,
   nodejs,
   yarn,
   python3,
@@ -108,7 +111,7 @@ let
 
   dependencies = callPackage ./offline-mirror.nix (
     {
-      inherit downloads node;
+      inherit downloads node purifier;
     }
     // lib.optionalAttrs (fetchurl != null) { inherit fetchurl; }
     // lib.optionalAttrs (fetchgit != null) { inherit fetchgit; }

@@ -3,8 +3,8 @@
 # Yarn's offline mirror for the downloads of nix/lib/lock.nix: a tree of
 # links, each at the file name Yarn looks the package up by.
 #
-# A file entry is a locked tarball, fetched by nix/lib/dependencies.nix. A
-# git entry becomes the tarball Yarn's GitFetcher would have written to the
+# The shared purifier library fetches the entries. A file entry is a
+# locked tarball. A git entry becomes the tarball Yarn's GitFetcher would have written to the
 # mirror. For a repository without a `prepare` script, that is a tar of the
 # commit's files at the archive root, as `git archive` writes it. For a
 # repository with one, Yarn installs the repository with its
@@ -19,11 +19,14 @@
 # checkouts leave them out too.
 {
   lib,
+  pkgs,
   stdenv,
   callPackage,
   runCommand,
   fetchurl,
   fetchgit,
+  # The `purifier` namespace of the shared library.
+  purifier,
   gnutar,
   nodejs,
   yarn,
@@ -39,18 +42,13 @@
 let
   steps = import ./yarn-install.nix { inherit lib node; };
 
-  files = callPackage ./dependencies.nix {
-    inherit fetchurl;
-    downloads = builtins.filter (d: !(d ? git)) downloads;
+  files = purifier.tree {
+    inherit pkgs fetchurl;
+    name = "${name}-files";
+    entries = builtins.filter (d: !(d ? git)) downloads;
   };
 
-  checkout =
-    d:
-    fetchgit {
-      inherit (d.git) url rev;
-      inherit (d) hash;
-      fetchSubmodules = d.git.submodules;
-    };
+  checkout = purifier.fetchEntry { inherit pkgs fetchgit; };
 
   # Writes the files of directory $1 at the root of tar file $2, in a
   # fixed order and with fixed owners and times. The files come from the
@@ -92,7 +90,12 @@ let
         ${steps.setup (
           callPackage ./offline-mirror.nix {
             inherit (d) downloads;
-            inherit node fetchurl fetchgit;
+            inherit
+              node
+              fetchurl
+              fetchgit
+              purifier
+              ;
           }
         )}
         ${steps.install [ ]}
