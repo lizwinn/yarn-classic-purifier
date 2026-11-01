@@ -65,9 +65,26 @@ let
     else
       let
         lock = lib.importJSON purifierLockFile;
+        name = baseNameOf (toString purifierLockFile);
+        # Each package records the `resolved` field of its yarn.lock entry
+        # and the hash of its tarball or checkout.
+        invalid = builtins.filter (
+          p:
+          !(
+            builtins.isAttrs p && builtins.isString (p.resolved or null) && builtins.isString (p.hash or null)
+          )
+        ) lock.packages;
       in
-      if lock.format or null != 1 then
+      if !(builtins.isAttrs lock) then
+        throw "yarn-classic-purifier: ${name} holds no JSON object. Run `yarn-classic-purifier lock`."
+      else if lock.format or null != 1 then
         throw "yarn-classic-purifier: ${toString purifierLockFile} has format ${toString (lock.format or null)}; this version reads format 1. Run `yarn-classic-purifier lock`."
+      else if !(builtins.isList (lock.packages or null)) then
+        throw "yarn-classic-purifier: ${name} lacks its `packages` list. Run `yarn-classic-purifier lock`."
+      else if invalid != [ ] then
+        throw "yarn-classic-purifier: ${name} has a malformed package entry for ${
+          builtins.toJSON ((builtins.head invalid).resolved or null)
+        }. Run `yarn-classic-purifier lock`."
       else
         lib.listToAttrs (map (e: lib.nameValuePair e.resolved e) lock.packages);
 

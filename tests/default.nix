@@ -92,8 +92,122 @@ let
       uses-prepared-dependency | grep -qx 'prepared with semver output 2.0.0'
       touch $out
     '';
+  # Whether reading fixtures/remote with the given purifier lockfile fails
+  # evaluation.
+  lockFails =
+    purifierLock:
+    !(builtins.tryEval (
+      builtins.deepSeq
+        (import ../nix/lib/lock.nix {
+          inherit lib;
+          lockFile = ./fixtures/remote/yarn.lock;
+          purifierLockFile = builtins.toFile "yarn-classic-purifier.lock.json" (builtins.toJSON purifierLock);
+        }).downloads
+        true
+    )).success;
 in
 {
+  # The URL each git dependency is cloned from: the ssh URL of a public
+  # forge becomes its https URL, an scp-style address becomes an ssh URL,
+  # and every other URL stays as yarn.lock has it.
+  git-urls =
+    let
+      rev = "0123456789abcdef0123456789abcdef01234567";
+      resolved = [
+        "git+ssh://git@github.com/owner/a.git#${rev}"
+        "git+ssh://git@gitlab.com/group/b.git#${rev}"
+        "git+ssh://git@git.example.com/c.git#${rev}"
+        "git@git.example.com:org/d.git#${rev}"
+        "git+https://codeberg.org/owner/e.git#${rev}"
+      ];
+      yarnLock = lib.concatImapStrings (i: r: ''
+        p${toString i}@${r}:
+          version "1.0.0"
+          resolved "${r}"
+
+      '') resolved;
+      lock = import ../nix/lib/lock.nix {
+        inherit lib;
+        lockFile = builtins.toFile "yarn.lock" yarnLock;
+        purifierLockFile = builtins.toFile "yarn-classic-purifier.lock.json" (
+          builtins.toJSON {
+            format = 1;
+            packages = map (r: {
+              resolved = r;
+              hash = lib.fakeHash;
+              prepare = false;
+            }) resolved;
+          }
+        );
+      };
+    in
+    evalCheck "git-urls" (
+      lib.sort lib.lessThan (map (d: d.git.url) lock.downloads) == [
+        "https://codeberg.org/owner/e.git"
+        "https://github.com/owner/a.git"
+        "https://gitlab.com/group/b.git"
+        "ssh://git@git.example.com/c.git"
+        "ssh://git@git.example.com/org/d.git"
+      ]
+    ) "the git dependencies clone from other URLs";
+
+  # Malformed purifier lockfiles fail evaluation: one that holds no
+  # object, one without its packages, and one with a package without a
+  # hash.
+  malformed-lock = evalCheck "malformed-lock" (
+    lockFails [ ]
+    && lockFails { format = 1; }
+    && lockFails {
+      format = 1;
+      packages = [
+        {
+          resolved = "git+https://github.com/stevemao/left-pad.git#ff8e7ba8b4122829cf66125ca8445cac7f073bce";
+          prepare = false;
+        }
+      ];
+    }
+  ) "a malformed purifier lockfile evaluated";
+
+  # A project whose git dependency the purifier lockfile does not record
+  # fails evaluation, with the command to run.
+  missing-entry =
+    let
+      result =
+        builtins.tryEval
+          (buildYarnClassicProject {
+            src = ./fixtures/remote;
+            purifierLockFile = null;
+          }).dependencies.drvPath;
+    in
+    evalCheck "missing-entry" (!result.success) "a project with an unrecorded git dependency evaluated";
+
+  # The install fails when a tarball in the offline mirror differs from the
+  # locked one. Yarn compares each tarball with the integrity in yarn.lock,
+  # discards the one that differs, and tries to download it, which the
+  # offline install refuses.
+  tampered-file = pkgs.runCommand "tampered-file-check" { nativeBuildInputs = [ pkgs.yarn ]; } ''
+    export HOME="$TMPDIR/home" YARN_CACHE_FOLDER="$TMPDIR/yarn-cache"
+    export YARN_YARN_OFFLINE_MIRROR="$PWD/mirror"
+    mkdir -p "$HOME"
+    cp -rL ${app.dependencies} mirror
+    chmod -R u+w mirror
+    set -- $(find mirror -name '*.tgz' | sort)
+    cp "$2" "$1"
+    tampered="$(basename "$1")"
+    cp -r ${./fixtures/app} project
+    chmod -R u+w project
+    cd project
+    if yarn install --offline --frozen-lockfile --ignore-scripts > "$TMPDIR/install.log" 2>&1; then
+      echo "the install succeeded" >&2
+      exit 1
+    fi
+    if ! grep "in offline mode" "$TMPDIR/install.log" | grep -qF "/$tampered"; then
+      cat "$TMPDIR/install.log" >&2
+      exit 1
+    fi
+    touch $out
+  '';
+
   # The package's command prints what its build script wrote, and its dev
   # dependency stays out of the installed package.
   app =
