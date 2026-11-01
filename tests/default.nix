@@ -289,6 +289,8 @@ in
               path = "left-pad.git-2fca6157f8ea5d1c3a0b3e8d2a1c5c3e5d6e7f80";
               git = git // {
                 submodules = false;
+                leaveDotGit = false;
+                commitObject = null;
               };
               hash = "sha256-T0cZnKaHGTIbJxos2zxdLgcv5JIWx+l0inzHUBZYW1Y=";
               prepare = false;

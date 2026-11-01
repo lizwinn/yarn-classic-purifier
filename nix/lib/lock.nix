@@ -199,6 +199,8 @@ let
             url = cloneUrl url;
             inherit rev;
             submodules = false;
+            leaveDotGit = false;
+            commitObject = null;
           };
           inherit (recorded) hash prepare;
         }
