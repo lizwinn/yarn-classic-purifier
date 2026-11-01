@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: MIT
 #
-# Runs every check of the flake on x86_64-linux and aarch64-linux: the
-# fixture builds in the Nix sandbox, the real-world project, the lockfile
-# reader checks and the formatting check.
+# Runs every check of the flake on x86_64-linux and aarch64-linux, then the
+# parts of the conformance checks that need Nix or the network outside the
+# sandbox.
 name: check
 
 on:
@@ -25,13 +25,29 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
       - run: nix flake check -L
-      # The lock command needs the Nix store to prefetch, so the relock of
-      # tests/fixtures/remote runs here rather than in a check. The new
-      # lockfile has to match the committed one byte for byte.
-      - name: relock
+      # A second build of the app fixture's package gives the same output.
+      - name: conformance-rebuild
+        run: |
+          system="$(nix config show system)"
+          nix build --rebuild -L ".#checks.$system.conformance-rebuild"
+      # The relock of tests/fixtures/remote, whose git dependency the lock
+      # command prefetches into the Nix store, reproduces its purifier
+      # lockfile byte for byte.
+      - name: conformance-relock
         run: |
           cp -r tests/fixtures/remote "$RUNNER_TEMP/remote"
           chmod -R u+w "$RUNNER_TEMP/remote"
           rm "$RUNNER_TEMP/remote/yarn-classic-purifier.lock.json"
           (cd "$RUNNER_TEMP/remote" && nix run "$GITHUB_WORKSPACE#yarn-classic-purifier" -- lock)
           cmp tests/fixtures/remote/yarn-classic-purifier.lock.json "$RUNNER_TEMP/remote/yarn-classic-purifier.lock.json"
+      # After `yarn-classic-purifier prefetch`, the yarn wrapper installs,
+      # builds and tests the app fixture with the network cut off.
+      - name: conformance-offline
+        run: |
+          cp -r tests/fixtures/app "$RUNNER_TEMP/app"
+          chmod -R u+w "$RUNNER_TEMP/app"
+          nix build --out-link "$RUNNER_TEMP/yarn" "$GITHUB_WORKSPACE#yarn"
+          cd "$RUNNER_TEMP/app"
+          nix run "$GITHUB_WORKSPACE#yarn-classic-purifier" -- prefetch
+          sudo unshare -n sudo -u "$USER" env "PATH=$PATH" "HOME=$HOME" \
+            sh -c "$RUNNER_TEMP/yarn/bin/yarn install --frozen-lockfile && $RUNNER_TEMP/yarn/bin/yarn run build && $RUNNER_TEMP/yarn/bin/yarn run test"
