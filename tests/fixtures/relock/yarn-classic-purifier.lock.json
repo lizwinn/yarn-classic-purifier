@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "inputsHash": "sha256-6g272Re06WaK8Ae9L/2/0axO0b8pkIfl5H3xeM8TcGM=",
+  "packages": [
+    {
+      "resolved": "https://codeload.github.com/jonschlinkert/pad-left/tar.gz/817d93e8a67bce6c72210a07f30809c6658b2e82",
+      "hash": "sha512-7zPirx9kcW9alFgnoSikXd5TIY6Ep8go+FrASOoCz5FVJafQGQC98jCSmUclmSwepKWKguLRvHY5JQtEB6fVjQ=="
+    }
+  ],
+  "contentHash": "sha256-ooHJFd2V3yHEiXF/WgRRB3xbmm9GNR5884pfViESsPc="
+}

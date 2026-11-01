@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: MIT
 #
 # What `yarn-classic-purifier publish` builds before it runs `yarn publish`:
-# the tarball of one package of the project, as the sandboxed build of the
-# project packs it. The command evaluates this file with the project root
-# and the package name.
+# the tarball of one package of the project from the project's `release`,
+# as package.tgz. The command evaluates this file with the project root and
+# the package name.
 {
   pkgs,
   # The `purifier` namespace of the shared library.
@@ -11,13 +11,17 @@
   # The project root.
   src,
   # The purifier lockfile, or null when the project has none.
-  purifierLockFile ? null,
+  lockFile ? null,
   # The name of the package to publish.
   package,
 }:
 let
-  project = pkgs.callPackage ./build-yarn-classic-project.nix { inherit purifier; } {
-    inherit src purifierLockFile;
+  project = import ./build-yarn-classic-project.nix { inherit purifier; } {
+    inherit pkgs src lockFile;
   };
+  file = (builtins.replaceStrings [ "@" "/" ] [ "" "__" ] package) + ".tgz";
 in
-project.packages.${package}.tarball
+pkgs.runCommand "yarn-classic-purifier-publish" { } ''
+  mkdir -p "$out"
+  ln -s ${project.release}/${pkgs.lib.escapeShellArg file} "$out/package.tgz"
+''

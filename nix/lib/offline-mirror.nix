@@ -23,10 +23,11 @@
   stdenv,
   callPackage,
   runCommand,
-  fetchurl,
-  fetchgit,
   # The `purifier` namespace of the shared library.
   purifier,
+  # Replaces fetchers of the purifier library; its fetchEntry and tree take
+  # it unchanged.
+  fetchers ? { },
   gnutar,
   nodejs,
   yarn,
@@ -42,13 +43,16 @@
 let
   steps = import ./yarn-install.nix { inherit lib node; };
 
-  files = purifier.tree {
-    inherit pkgs fetchurl;
-    name = "${name}-files";
-    entries = builtins.filter (d: !(d ? git)) downloads;
-  };
+  files = purifier.tree (
+    fetchers
+    // {
+      inherit pkgs;
+      name = "${name}-files";
+      entries = builtins.filter (d: !(d ? git)) downloads;
+    }
+  );
 
-  checkout = purifier.fetchEntry { inherit pkgs fetchgit; };
+  checkout = purifier.fetchEntry (fetchers // { inherit pkgs; });
 
   # Writes the files of directory $1 at the root of tar file $2, in a
   # fixed order and with fixed owners and times. The files come from the
@@ -92,8 +96,7 @@ let
             inherit (d) downloads;
             inherit
               node
-              fetchurl
-              fetchgit
+              fetchers
               purifier
               ;
           }

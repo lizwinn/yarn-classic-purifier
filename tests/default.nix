@@ -1,29 +1,34 @@
 # SPDX-License-Identifier: MIT
 #
 # The flake's checks. Every one builds in the sandbox; the only network
-# access is the fixed-output fetches of locked tarballs.
+# access is the fixed-output fetches of locked tarballs and the
+# fixed-output relock of conformance-relock.
 {
   pkgs,
-  # The flake's default package overlay, which adds buildYarnClassicProject.
+  # The flake's default package overlay, which adds the yarn wrapper and the
+  # yarn-classic-purifier command.
   overlay,
   # The `purifier` namespace of the shared library, from the flake's
   # library.
   purifier,
+  # The `yarn-classic-purifier` namespace of the flake's library.
+  yarn-classic-purifier,
 }:
 let
   inherit (pkgs) lib;
 
-  # Every fixture builds the way a consumer's package does: through
-  # buildYarnClassicProject of a package set the overlay applies to.
   withOverlay = pkgs.extend overlay;
-  inherit (withOverlay) buildYarnClassicProject;
+  wrapper = withOverlay.yarn-classic-purifier.yarn;
+  command = withOverlay.yarn-classic-purifier.yarn-classic-purifier;
+
+  # Every fixture builds the way a consumer's flake does: through the
+  # builder of the flake's library.
+  buildYarnClassicProject =
+    args: yarn-classic-purifier.buildYarnClassicProject ({ inherit pkgs; } // args);
 
   # One package with a build script, a test script, a command, a
   # dependency and a dev dependency.
-  app = buildYarnClassicProject {
-    src = ./fixtures/app;
-    doCheck = true;
-  };
+  app = buildYarnClassicProject { src = ./fixtures/app; };
 
   # A root that declares workspaces, a library workspace with a scoped
   # name and a command-line workspace that depends on it. The root's
@@ -32,17 +37,37 @@ let
   # when the install patches interpreters before it runs scripts.
   workspaces = buildYarnClassicProject { src = ./fixtures/workspaces; };
 
-  # Reads a yarn.lock written inline.
+  sha256 =
+    s:
+    builtins.convertHash {
+      hash = builtins.hashString "sha256" s;
+      hashAlgo = "sha256";
+      toHashFormat = "sri";
+    };
+
+  # A purifier lockfile with the given packages, for the yarn.lock with the
+  # given text, as `yarn-classic-purifier lock` writes it.
+  lockFor =
+    yarnLockText: packages:
+    let
+      body = {
+        version = 1;
+        inputsHash = sha256 yarnLockText;
+        inherit packages;
+      };
+    in
+    body // { contentHash = sha256 (builtins.toJSON body); };
+
+  toLockFile = lock: builtins.toFile "yarn-classic-purifier.lock.json" (builtins.toJSON lock);
+
+  # Reads a yarn.lock written inline, with a purifier lockfile that holds
+  # the given packages, or with none.
   readLock =
-    text: purifierLock:
+    text: packages:
     import ../nix/lib/lock.nix {
       inherit lib;
-      lockFile = builtins.toFile "yarn.lock" text;
-      purifierLockFile =
-        if purifierLock == null then
-          null
-        else
-          builtins.toFile "yarn-classic-purifier.lock.json" (builtins.toJSON purifierLock);
+      yarnLock = builtins.toFile "yarn.lock" text;
+      lockFile = if packages == null then null else toLockFile (lockFor text packages);
     };
 
   # A lockfile check passes when `assertion` holds; it fails with
@@ -56,16 +81,30 @@ let
 
   integrity = "sha512-dKlgKLTrnih8yfGKBozBsVcGe0mS1/aKhCGPevK47XUNBMB+L0qk6zFw3YQnOFqH8dWqP9KNw9V+g1oOw4ew2g==";
 
+  # The offline mirror of a project's lockfiles, as
+  # `yarn-classic-purifier prefetch` builds it.
+  mirrorOf =
+    yarnLock: lockFile:
+    import ../nix/lib/interactive.nix {
+      inherit
+        pkgs
+        purifier
+        yarnLock
+        lockFile
+        ;
+    };
+  appMirror = mirrorOf ./fixtures/app/yarn.lock null;
+
   # Builds the git-prepare project, whose git dependency is the directory
   # `repository`, and runs its command. `extra` adds fields to the
   # dependency's entry in the purifier lockfile.
   gitPrepareCheck =
     name: repository: extra:
     let
-      purifierLock = builtins.toFile "yarn-classic-purifier.lock.json" (
-        builtins.toJSON {
-          format = 1;
-          packages = [
+      project = buildYarnClassicProject {
+        src = ./fixtures/git-prepare/project;
+        lockFile = toLockFile (
+          lockFor (builtins.readFile ./fixtures/git-prepare/project/yarn.lock) [
             (
               {
                 resolved = "git+https://git.example.invalid/prepared-dependency.git#0123456789abcdef0123456789abcdef01234567";
@@ -74,39 +113,196 @@ let
                 downloads =
                   (import ../nix/lib/lock.nix {
                     inherit lib;
-                    lockFile = ./fixtures/git-prepare/repository/yarn.lock;
+                    yarnLock = ./fixtures/git-prepare/repository/yarn.lock;
                   }).downloads;
               }
               // extra
             )
-          ];
-        }
-      );
-      project = buildYarnClassicProject {
-        src = ./fixtures/git-prepare/project;
-        purifierLockFile = purifierLock;
-        fetchgit = _: repository;
+          ]
+        );
+        fetchers.fetchgit = _: repository;
       };
     in
     pkgs.runCommand name { nativeBuildInputs = [ project.packages.uses-prepared-dependency ]; } ''
       uses-prepared-dependency | grep -qx 'prepared with semver output 2.0.0'
       touch $out
     '';
-  # Whether reading fixtures/remote with the given purifier lockfile fails
-  # evaluation.
+
+  # The remote fixture's purifier lockfile, and whether reading the remote
+  # fixture's yarn.lock with another purifier lockfile fails evaluation.
+  remoteYarnLock = builtins.readFile ./fixtures/remote/yarn.lock;
+  remoteLock = lib.importJSON ./fixtures/remote/yarn-classic-purifier.lock.json;
   lockFails =
-    purifierLock:
+    lock:
     !(builtins.tryEval (
       builtins.deepSeq
         (import ../nix/lib/lock.nix {
           inherit lib;
-          lockFile = ./fixtures/remote/yarn.lock;
-          purifierLockFile = builtins.toFile "yarn-classic-purifier.lock.json" (builtins.toJSON purifierLock);
+          yarnLock = ./fixtures/remote/yarn.lock;
+          lockFile = toLockFile lock;
         }).downloads
         true
     )).success;
 in
 {
+  # A purifier lockfile written for another yarn.lock fails evaluation,
+  # naming `yarn-classic-purifier lock`.
+  conformance-stale = evalCheck "conformance-stale" (lockFails (
+    lockFor "# another yarn.lock\n" remoteLock.packages
+  )) "a purifier lockfile for another yarn.lock evaluated";
+
+  # A purifier lockfile whose content changed after the lock command wrote
+  # it, here the hash of one package, fails evaluation.
+  conformance-tampered = evalCheck "conformance-tampered" (
+    !(lockFails remoteLock)
+    && lockFails (
+      remoteLock
+      // {
+        packages = map (p: p // { hash = lib.fakeHash; }) remoteLock.packages;
+      }
+    )
+  ) "a purifier lockfile with a changed hash evaluated, or the committed one did not";
+
+  # A project whose git dependency the purifier lockfile does not record
+  # fails evaluation, naming `yarn-classic-purifier lock`.
+  conformance-missing =
+    let
+      result =
+        builtins.tryEval
+          (buildYarnClassicProject {
+            src = ./fixtures/remote;
+            lockFile = null;
+          }).release.drvPath;
+    in
+    evalCheck "conformance-missing" (
+      !result.success
+    ) "a project with an unrecorded git dependency evaluated";
+
+  # Malformed purifier lockfiles fail evaluation, naming
+  # `yarn-classic-purifier lock`: one that holds no object, one without its
+  # contentHash, one of another version, one without its packages, and one
+  # with a package without a hash.
+  conformance-malformed =
+    let
+      relabel =
+        lock:
+        lockFor remoteYarnLock [ ]
+        // removeAttrs lock [ "contentHash" ]
+        // {
+          contentHash = sha256 (builtins.toJSON (removeAttrs lock [ "contentHash" ]));
+        };
+    in
+    evalCheck "conformance-malformed" (
+      lockFails [ ]
+      && lockFails (removeAttrs remoteLock [ "contentHash" ])
+      && lockFails (relabel (remoteLock // { version = 2; }))
+      && lockFails (relabel (removeAttrs remoteLock [ "packages" ]))
+      && lockFails (
+        lockFor remoteYarnLock [
+          {
+            resolved = "git+https://github.com/stevemao/left-pad.git#ff8e7ba8b4122829cf66125ca8445cac7f073bce";
+            prepare = false;
+          }
+        ]
+      )
+    ) "a malformed purifier lockfile evaluated";
+
+  # `yarn-classic-purifier lock` of the relock fixture reproduces its
+  # committed purifier lockfile byte for byte. The lock run needs the
+  # network, so the check is a fixed-output build with an empty output.
+  # Nix builds a fixed-output derivation once per name, so the name
+  # carries a digest of the command and the fixture, and the check runs
+  # again when either changes.
+  conformance-relock =
+    let
+      digest = builtins.hashString "sha256" (
+        lib.concatMapStrings builtins.readFile [
+          ../pkgs/yarn-classic-purifier/default.nix
+          ../nix/lib/lock.nix
+          ./fixtures/relock/package.json
+          ./fixtures/relock/yarn.lock
+          ./fixtures/relock/yarn-classic-purifier.lock.json
+        ]
+      );
+    in
+    pkgs.runCommand "conformance-relock-${builtins.substring 0 16 digest}"
+      {
+        nativeBuildInputs = [
+          command
+          pkgs.nix
+          pkgs.cacert
+        ];
+        outputHashMode = "flat";
+        outputHashAlgo = "sha256";
+        outputHash = builtins.hashString "sha256" "";
+      }
+      ''
+        export HOME="$TMPDIR/home"
+        mkdir -p "$HOME"
+        export SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
+        # The lock command evaluates the lockfile reader, which reads files
+        # and builds nothing.
+        export NIX_CONFIG=$'experimental-features = nix-command\nstore = dummy://'
+        cp -r ${./fixtures/relock} project
+        chmod -R u+w project
+        rm project/yarn-classic-purifier.lock.json
+        cd project
+        yarn-classic-purifier lock
+        if ! cmp yarn-classic-purifier.lock.json ${./fixtures/relock/yarn-classic-purifier.lock.json}; then
+          diff ${./fixtures/relock/yarn-classic-purifier.lock.json} yarn-classic-purifier.lock.json >&2
+          exit 1
+        fi
+        touch $out
+      '';
+
+  # The installed package of the app fixture. CI builds it a second time
+  # with `nix build --rebuild`, which fails when the output differs.
+  conformance-rebuild = app.packages.hello-yarn;
+
+  # After `yarn-classic-purifier prefetch`, the everyday loop works with no
+  # network. The sandbox has none; the project gets the state prefetch
+  # leaves, from the same derivation, and the yarn wrapper installs and
+  # builds the app fixture from it without running Nix.
+  conformance-offline = pkgs.runCommand "conformance-offline" { nativeBuildInputs = [ wrapper ]; } ''
+    export HOME="$TMPDIR/home"
+    mkdir -p "$HOME"
+    cp -r ${./fixtures/app} project
+    chmod -R u+w project
+    cd project
+    mkdir .yarn-classic-purifier
+    ln -s ${appMirror} .yarn-classic-purifier/mirror
+    cat yarn.lock | sha256sum | cut -d' ' -f1 > .yarn-classic-purifier/lock.sha256
+    yarn install --frozen-lockfile
+    yarn run build
+    yarn run test
+    touch $out
+  '';
+
+  # A project whose source holds no lockfiles builds from a yarn.lock and
+  # a purifier lockfile kept outside it, as a packaging flake does.
+  conformance-external =
+    let
+      project = buildYarnClassicProject {
+        src = lib.cleanSourceWith {
+          src = ./fixtures/remote;
+          filter =
+            path: _:
+            !(builtins.elem (baseNameOf path) [
+              "yarn.lock"
+              "yarn-classic-purifier.lock.json"
+            ]);
+        };
+        yarnLock = ./fixtures/remote/yarn.lock;
+        lockFile = ./fixtures/remote/yarn-classic-purifier.lock.json;
+      };
+    in
+    pkgs.runCommand "conformance-external"
+      { nativeBuildInputs = [ project.packages.remote-dependencies ]; }
+      ''
+        remote-dependencies | grep -qx '..git ..tarball'
+        touch $out
+      '';
+
   # The URL each git dependency is cloned from: the ssh URL of a public
   # forge becomes its https URL, an scp-style address becomes an ssh URL,
   # and every other URL stays as yarn.lock has it.
@@ -120,26 +316,21 @@ in
         "git@git.example.com:org/d.git#${rev}"
         "git+https://codeberg.org/owner/e.git#${rev}"
       ];
-      yarnLock = lib.concatImapStrings (i: r: ''
-        p${toString i}@${r}:
-          version "1.0.0"
-          resolved "${r}"
+      lock =
+        readLock
+          (lib.concatImapStrings (i: r: ''
+            p${toString i}@${r}:
+              version "1.0.0"
+              resolved "${r}"
 
-      '') resolved;
-      lock = import ../nix/lib/lock.nix {
-        inherit lib;
-        lockFile = builtins.toFile "yarn.lock" yarnLock;
-        purifierLockFile = builtins.toFile "yarn-classic-purifier.lock.json" (
-          builtins.toJSON {
-            format = 1;
-            packages = map (r: {
+          '') resolved)
+          (
+            map (r: {
               resolved = r;
               hash = lib.fakeHash;
               prepare = false;
-            }) resolved;
-          }
-        );
-      };
+            }) resolved
+          );
     in
     evalCheck "git-urls" (
       lib.sort lib.lessThan (map (d: d.git.url) lock.downloads) == [
@@ -151,36 +342,6 @@ in
       ]
     ) "the git dependencies clone from other URLs";
 
-  # Malformed purifier lockfiles fail evaluation: one that holds no
-  # object, one without its packages, and one with a package without a
-  # hash.
-  malformed-lock = evalCheck "malformed-lock" (
-    lockFails [ ]
-    && lockFails { format = 1; }
-    && lockFails {
-      format = 1;
-      packages = [
-        {
-          resolved = "git+https://github.com/stevemao/left-pad.git#ff8e7ba8b4122829cf66125ca8445cac7f073bce";
-          prepare = false;
-        }
-      ];
-    }
-  ) "a malformed purifier lockfile evaluated";
-
-  # A project whose git dependency the purifier lockfile does not record
-  # fails evaluation, with the command to run.
-  missing-entry =
-    let
-      result =
-        builtins.tryEval
-          (buildYarnClassicProject {
-            src = ./fixtures/remote;
-            purifierLockFile = null;
-          }).dependencies.drvPath;
-    in
-    evalCheck "missing-entry" (!result.success) "a project with an unrecorded git dependency evaluated";
-
   # The install fails when a tarball in the offline mirror differs from the
   # locked one. Yarn compares each tarball with the integrity in yarn.lock,
   # discards the one that differs, and tries to download it, which the
@@ -189,7 +350,7 @@ in
     export HOME="$TMPDIR/home" YARN_CACHE_FOLDER="$TMPDIR/yarn-cache"
     export YARN_YARN_OFFLINE_MIRROR="$PWD/mirror"
     mkdir -p "$HOME"
-    cp -rL ${app.dependencies} mirror
+    cp -rL ${appMirror} mirror
     chmod -R u+w mirror
     set -- $(find mirror -name '*.tgz' | sort)
     cp "$2" "$1"
@@ -208,8 +369,9 @@ in
     touch $out
   '';
 
-  # The package's command prints what its build script wrote, and its dev
-  # dependency stays out of the installed package.
+  # The package's command prints what its build script wrote, its dev
+  # dependency stays out of the installed package, and the release holds
+  # the built file.
   app =
     pkgs.runCommand "app-check"
       {
@@ -221,10 +383,24 @@ in
           echo "the dev dependency is-odd is installed" >&2
           exit 1
         fi
-        tar -xzOf ${app.packages.hello-yarn.tarball}/package.tgz package/dist/message.js \
+        tar -xzOf ${app.release}/hello-yarn.tgz package/dist/message.js \
           | grep -q 'built by the build script'
         touch $out
       '';
+
+  # The app fixture's test script passes in the sandbox.
+  app-tests = app.tests;
+
+  # The fetched entries are the purifier library entries of the app
+  # fixture's yarn.lock.
+  fetches = evalCheck "fetches" (
+    map (e: e.path) app.fetches == map (e: e.path)
+      (import ../nix/lib/lock.nix {
+        inherit lib;
+        yarnLock = ./fixtures/app/yarn.lock;
+      }).downloads
+    && app.fetches != [ ]
+  ) "the fetches of the app fixture differ from its yarn.lock";
 
   # The command-line workspace finds the library workspace; the library
   # installs on its own.
@@ -339,16 +515,12 @@ in
       '';
       resolved = "https://codeload.github.com/left-pad/left-pad/tar.gz/2fca6157f8ea5d1c3a0b3e8d2a1c5c3e5d6e7f80";
       without = readLock text null;
-      with' = readLock text {
-        format = 1;
-        packages = [
-          {
-            inherit resolved;
-            url = resolved;
-            hash = integrity;
-          }
-        ];
-      };
+      with' = readLock text [
+        {
+          inherit resolved;
+          hash = integrity;
+        }
+      ];
     in
     evalCheck "purifier-lock" (
       without.missing == [
@@ -386,16 +558,13 @@ in
         rev = "2fca6157f8ea5d1c3a0b3e8d2a1c5c3e5d6e7f80";
       };
       without = readLock text null;
-      with' = readLock text {
-        format = 1;
-        packages = [
-          {
-            inherit resolved;
-            hash = "sha256-T0cZnKaHGTIbJxos2zxdLgcv5JIWx+l0inzHUBZYW1Y=";
-            prepare = false;
-          }
-        ];
-      };
+      with' = readLock text [
+        {
+          inherit resolved;
+          hash = "sha256-T0cZnKaHGTIbJxos2zxdLgcv5JIWx+l0inzHUBZYW1Y=";
+          prepare = false;
+        }
+      ];
     in
     evalCheck "git-dependency"
       (
@@ -431,20 +600,6 @@ in
     filter = path: _: baseNameOf path != "yarn.lock";
   }) { yarnLock = builtins.readFile ./fixtures/git-prepare/repository/yarn.lock; };
 
-  # The wrapper evaluates nix/lib/interactive.nix for a project; the mirror
-  # it builds is the one the sandboxed build of the project uses.
-  interactive =
-    let
-      mirror = import ../nix/lib/interactive.nix {
-        inherit purifier;
-        inherit pkgs;
-        lockFile = ./fixtures/app/yarn.lock;
-      };
-    in
-    evalCheck "interactive" (
-      mirror.outPath == app.dependencies.outPath
-    ) "the mirror the wrapper builds differs from the mirror the build uses";
-
   # A git dependency and a GitHub dependency, which Yarn fetches from
   # codeload.github.com, with the purifier lockfile that
   # `yarn-classic-purifier lock` wrote for them.
@@ -468,21 +623,20 @@ in
       touch $out
     '';
 
-  # `yarn-classic-purifier publish` builds the tarball nix/lib/publish.nix
-  # names, which is the package's tarball output.
+  # `yarn-classic-purifier publish` uploads the package's tarball from the
+  # release, which nix/lib/publish.nix links as package.tgz.
   publish-tarball =
     let
       tarball = import ../nix/lib/publish.nix {
-        inherit purifier;
-        pkgs = withOverlay;
+        inherit pkgs purifier;
         src = ./fixtures/app;
         package = "hello-yarn";
       };
     in
-    evalCheck "publish-tarball" (
-      tarball.outPath == (buildYarnClassicProject { src = ./fixtures/app; })
-      .packages.hello-yarn.tarball.outPath
-    ) "the tarball the publish command builds differs from the package's tarball";
+    pkgs.runCommand "publish-tarball-check" { } ''
+      cmp ${tarball}/package.tgz ${app.release}/hello-yarn.tgz
+      touch $out
+    '';
 
   # `yarn publish` of that tarball, as the publish command runs it, uploads
   # the tarball byte for byte. The registry is a local server.
@@ -506,9 +660,9 @@ in
         # package.json Yarn reads even when it publishes a tarball.
         cd "$TMPDIR"
         cp ${./fixtures/app/package.json} package.json
-        yarn publish ${app.packages.hello-yarn.tarball}/package.tgz --non-interactive --registry "$registry"
+        yarn publish ${app.release}/hello-yarn.tgz --non-interactive --registry "$registry"
         jq -r '._attachments[].data' "$TMPDIR/body" | base64 -d > uploaded.tgz
-        cmp uploaded.tgz ${app.packages.hello-yarn.tarball}/package.tgz
+        cmp uploaded.tgz ${app.release}/hello-yarn.tgz
         touch $out
       '';
 
@@ -517,36 +671,31 @@ in
   # package ships a prebuilt Linux binary that the install patches.
   immer =
     let
-      project = buildYarnClassicProject (
-        {
-          src = pkgs.fetchFromGitHub {
-            owner = "immerjs";
-            repo = "immer";
-            rev = "75a290e44ba14bd723c8ef8546b6559c8ef3ae88";
-            hash = "sha256-XOeu1biJRgglGW0Zz2cVPt14e4Rh1N2h87wtC6XQLEE=";
-          };
-        }
+      project = buildYarnClassicProject {
+        src = pkgs.fetchFromGitHub {
+          owner = "immerjs";
+          repo = "immer";
+          rev = "75a290e44ba14bd723c8ef8546b6559c8ef3ae88";
+          hash = "sha256-XOeu1biJRgglGW0Zz2cVPt14e4Rh1N2h87wtC6XQLEE=";
+        };
         # immer's `test` script ends with Flow, and the flow-bin 0.123 that
-        # immer pins has no binary for aarch64-linux. There the check runs
+        # immer pins has no binary for aarch64-linux. There the tests are
         # the other two parts of `test`: the source tests and the tests of
         # the built package.
-        // (
+        testScripts =
           if pkgs.stdenv.hostPlatform.isx86_64 then
-            { doCheck = true; }
+            [ "test" ]
           else
-            {
-              buildScripts = [
-                "build"
-                "test:src"
-                "test:build"
-              ];
-            }
-        )
-      );
+            [
+              "test:src"
+              "test:build"
+            ];
+      };
     in
     pkgs.runCommand "immer-check"
       {
         nativeBuildInputs = [ pkgs.nodejs ];
+        tests = project.tests;
       }
       ''
         NODE_PATH=${project.packages.immer}/lib/node_modules node -e '
@@ -557,7 +706,7 @@ in
         touch $out
       '';
 
-  # The wrapper and the lock command build.
-  yarn = withOverlay.yarn-classic-purifier.yarn;
-  yarn-classic-purifier = withOverlay.yarn-classic-purifier.yarn-classic-purifier;
+  # The wrapper and the command build.
+  yarn = wrapper;
+  yarn-classic-purifier = command;
 }

@@ -1,20 +1,23 @@
 # SPDX-License-Identifier: MIT
 #
-# What the `yarn` wrapper builds for a project: the offline mirror of the
-# packages its yarn.lock names, the same tree a sandboxed build of the
-# project uses. The wrapper evaluates this file with the absolute paths of
-# the lockfiles and keeps the result alive with a GC root.
+# What `yarn-classic-purifier prefetch` and the `yarn` wrapper build for a
+# project: the offline mirror of the packages its yarn.lock names, the same
+# tree a sandboxed build of the project uses. The commands evaluate this
+# file with the absolute paths of the lockfiles and keep the result alive
+# with a garbage-collector root in the project.
 {
   pkgs,
   # The `purifier` namespace of the shared library.
   purifier,
-  lockFile,
-  purifierLockFile ? null,
+  # The project's yarn.lock.
+  yarnLock,
+  # The purifier lockfile, or null when the project has none.
+  lockFile ? null,
 }:
 let
   lock = import ./lock.nix {
     inherit (pkgs) lib;
-    inherit lockFile purifierLockFile;
+    inherit yarnLock lockFile;
   };
 in
 if lock.missing != [ ] then

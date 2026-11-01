@@ -3,9 +3,13 @@
 # Yarn Classic, wrapped so that in a project with a yarn.lock it installs
 # the locked tarballs from the Nix store, offline. The wrapper builds the
 # lockfile's tarballs into an offline mirror through Nix
-# (nix/lib/interactive.nix), under $XDG_CACHE_HOME/yarn-classic-purifier,
+# (nix/lib/interactive.nix), under .yarn-classic-purifier in the project,
 # and runs Yarn offline against that mirror. It rebuilds the mirror when a
-# lockfile changes.
+# lockfile changes; after `yarn-classic-purifier prefetch` it needs no
+# network.
+#
+# The purifier lockfile is yarn-classic-purifier.lock.json beside yarn.lock,
+# or the file that YARN_CLASSIC_PURIFIER_LOCKFILE names.
 #
 # The commands that change the lockfile (add, upgrade, upgrade-interactive,
 # remove, import) resolve against the registry, as Yarn does without the
@@ -14,6 +18,8 @@
   lib,
   writeShellApplication,
   nodejs,
+  node-gyp,
+  python3,
   pkgs,
   coreutils,
   path,
@@ -22,18 +28,18 @@
   # `yarn` is this wrapper, so the argument has another name.
   yarnClassic ? pkgs.yarn,
 }:
-let
-  yarn = yarnClassic;
-in
 writeShellApplication {
   name = "yarn";
-  # Package scripts run `node`; they get the Node.js that runs Yarn.
+  # Package scripts run `node`; they get the Node.js that runs Yarn. Install
+  # scripts that build native addons get node-gyp and Python.
   runtimeInputs = [
     coreutils
     nodejs
+    node-gyp
+    python3
   ];
   text = ''
-    yarn=${lib.getExe yarn}
+    yarn=${lib.getExe yarnClassic}
 
     if [ "''${YARN_CLASSIC_PURIFIER:-1}" = 0 ]; then
       exec "$yarn" "$@"
@@ -64,36 +70,22 @@ writeShellApplication {
       fi
       dir="$(dirname "$dir")"
     done
-    lock="$dir/yarn.lock"
-    purifierLock="$dir/yarn-classic-purifier.lock.json"
 
-    cache="''${XDG_CACHE_HOME:-$HOME/.cache}/yarn-classic-purifier/$(printf '%s' "$lock" | sha256sum | cut -c1-32)"
-    stamp="$({
-      cat "$lock"
-      cat "$purifierLock" 2> /dev/null || true
-    } | sha256sum | cut -d' ' -f1)"
-    if [ "$(cat "$cache/lock.sha256" 2> /dev/null || true)" != "$stamp" ]; then
-      echo "yarn-classic-purifier: building the tarballs of $lock" >&2
-      mkdir -p "$cache"
-      purifierLockExpr=null
-      if [ -f "$purifierLock" ]; then
-        purifierLockExpr='/. + builtins.getEnv "YARN_CLASSIC_PURIFIER_PURIFIER_LOCK"'
-      fi
-      YARN_CLASSIC_PURIFIER_LOCK="$lock" YARN_CLASSIC_PURIFIER_PURIFIER_LOCK="$purifierLock" \
-        nix build --impure --out-link "$cache/mirror" --expr "
-          import ${../../nix/lib}/interactive.nix {
-            purifier = (builtins.getFlake \"path:${../..}\").lib.purifier;
-            pkgs = import ${path} { system = \"${stdenv.hostPlatform.system}\"; };
-            lockFile = /. + builtins.getEnv \"YARN_CLASSIC_PURIFIER_LOCK\";
-            purifierLockFile = $purifierLockExpr;
-          }
-        "
-      printf '%s\n' "$stamp" > "$cache/lock.sha256"
-    fi
+    ${import ../../nix/lib/mirror-script.nix {
+      flake = ../..;
+      nixpkgs = path;
+      inherit (stdenv.hostPlatform) system;
+    }}
 
-    export YARN_YARN_OFFLINE_MIRROR="$cache/mirror"
+    buildMirror "$dir/yarn.lock" "''${YARN_CLASSIC_PURIFIER_LOCKFILE:-$dir/yarn-classic-purifier.lock.json}"
+
+    export YARN_YARN_OFFLINE_MIRROR
+    YARN_YARN_OFFLINE_MIRROR="$(rootsOf "$dir/yarn.lock")/mirror"
     export YARN_YARN_OFFLINE_MIRROR_PRUNING=false
     export YARN_DISABLE_SELF_UPDATE_CHECK=true
+    # node-gyp takes the headers of the Node.js that runs it rather than
+    # downloading them.
+    export npm_config_nodedir=${nodejs}
     mirror="$(cd "$dir" && "$yarn" config get yarn-offline-mirror --offline --silent)"
     if [ "$mirror" != "$YARN_YARN_OFFLINE_MIRROR" ] && [ "$mirror" != undefined ]; then
       echo "yarn-classic-purifier: the project sets its own offline mirror ($mirror), which Yarn reads instead of the locked tarballs" >&2

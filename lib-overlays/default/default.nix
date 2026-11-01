@@ -1,13 +1,18 @@
 # SPDX-License-Identifier: MIT
 #
-# The `yarn-classic-purifier` library namespace. It holds nothing: the
-# builder needs a package set, so it is the package
-# `buildYarnClassicProject` that the default package overlay adds.
+# The `yarn-classic-purifier` library namespace: the builder
+# `buildYarnClassicProject` (nix/lib/build-yarn-classic-project.nix), which
+# takes the package set to build with as its `pkgs` argument. It fetches
+# through the `purifier` namespace of the same library.
 { ... }:
 {
 
   overlay = final: prev: {
-    yarn-classic-purifier = prev.yarn-classic-purifier or { };
+    yarn-classic-purifier = {
+      buildYarnClassicProject = import ../../nix/lib/build-yarn-classic-project.nix {
+        inherit (final) purifier;
+      };
+    };
   };
 
 }

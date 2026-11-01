@@ -1,0 +1,7 @@
+{
+  "name": "relock",
+  "version": "1.0.0",
+  "dependencies": {
+    "pad-left": "github:jonschlinkert/pad-left#2.1.0"
+  }
+}

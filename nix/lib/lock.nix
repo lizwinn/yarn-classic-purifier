@@ -28,15 +28,27 @@
 # codeload.github.com, carries no hash in yarn.lock, and neither does a git
 # dependency. The purifier lockfile (yarn-classic-purifier.lock.json,
 # written by `yarn-classic-purifier lock`) records them, keyed by
-# `resolved`.
+# `resolved`. It holds its format `version`, the `inputsHash` of the
+# yarn.lock it was written for, and the `contentHash` of its own content:
+# the SHA-256 of its JSON without `contentHash`, with keys sorted and no
+# whitespace, which is what builtins.toJSON prints.
 {
   lib,
-  lockFile,
+  # The project's yarn.lock.
+  yarnLock,
   # The purifier lockfile, or null when the project has none.
-  purifierLockFile ? null,
+  lockFile ? null,
 }:
 let
-  text = builtins.readFile lockFile;
+  text = builtins.readFile yarnLock;
+
+  sha256 =
+    s:
+    builtins.convertHash {
+      hash = builtins.hashString "sha256" s;
+      hashAlgo = "sha256";
+      toHashFormat = "sri";
+    };
 
   # Yarn writes one entry per block, with a blank line between blocks. The
   # first line of a block lists the specs that resolve to the entry; the
@@ -60,12 +72,12 @@ let
     if values == [ ] then null else builtins.head values;
 
   extra =
-    if purifierLockFile == null then
+    if lockFile == null then
       { }
     else
       let
-        lock = lib.importJSON purifierLockFile;
-        name = baseNameOf (toString purifierLockFile);
+        lock = lib.importJSON lockFile;
+        name = baseNameOf (toString lockFile);
         # Each package records the `resolved` field of its yarn.lock entry
         # and the hash of its tarball or checkout.
         invalid = builtins.filter (
@@ -77,8 +89,16 @@ let
       in
       if !(builtins.isAttrs lock) then
         throw "yarn-classic-purifier: ${name} holds no JSON object. Run `yarn-classic-purifier lock`."
-      else if lock.format or null != 1 then
-        throw "yarn-classic-purifier: ${toString purifierLockFile} has format ${toString (lock.format or null)}; this version reads format 1. Run `yarn-classic-purifier lock`."
+      else if lock.version or null != 1 then
+        throw "yarn-classic-purifier: ${name} has version ${
+          builtins.toJSON (lock.version or null)
+        }; this version of yarn-classic-purifier reads version 1. Run `yarn-classic-purifier lock`."
+      else if !(builtins.isString (lock.contentHash or null)) then
+        throw "yarn-classic-purifier: ${name} lacks its `contentHash`. Run `yarn-classic-purifier lock`."
+      else if lock.contentHash != sha256 (builtins.toJSON (removeAttrs lock [ "contentHash" ])) then
+        throw "yarn-classic-purifier: ${name} was changed after `yarn-classic-purifier lock` wrote it: its content does not match its contentHash. Run `yarn-classic-purifier lock`."
+      else if lock.inputsHash or null != sha256 text then
+        throw "yarn-classic-purifier: yarn.lock changed since ${name} was written. Run `yarn-classic-purifier lock`."
       else if !(builtins.isList (lock.packages or null)) then
         throw "yarn-classic-purifier: ${name} lacks its `packages` list. Run `yarn-classic-purifier lock`."
       else if invalid != [ ] then

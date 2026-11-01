@@ -10,22 +10,35 @@
 # `prepare` script. Yarn installs such a repository with its own
 # devDependencies before it packs it, so for those the file also records
 # the offline mirror of the repository's own yarn.lock, found the same way.
-# The command reads yarn.lock with the reader a build uses
-# (nix/lib/lock.nix), and removes the file when nothing needs it.
+# The file also holds its format `version`, the `inputsHash` of yarn.lock
+# and its own `contentHash`. The command reads yarn.lock with the reader a
+# build uses (nix/lib/lock.nix), and removes the file when nothing needs it.
+#
+# `yarn-classic-purifier prefetch` builds the offline mirror of the
+# project's lockfiles and keeps it, and the `yarn` wrapper with the
+# Node.js, Yarn, node-gyp and Python it runs, alive with garbage-collector
+# roots under .yarn-classic-purifier. After it, the `yarn` wrapper works
+# with no network.
 #
 # `yarn-classic-purifier publish <package> [yarn publish options]` builds
-# the tarball of a package of the project in the Nix sandbox and publishes
-# that tarball with `yarn publish`.
+# the project's release in the Nix sandbox and publishes the package's
+# tarball from it with `yarn publish`.
+#
+# Every subcommand takes `--lockfile <path>` for a purifier lockfile kept
+# elsewhere than the project root.
 {
   lib,
   writeShellApplication,
   coreutils,
+  curl,
   jq,
   nix-prefetch-git,
   nodejs,
   pkgs,
   path,
   stdenv,
+  # The offline wrapper of this flake's package scope.
+  yarn,
   # Yarn Classic from nixpkgs. Inside this flake's package scope the name
   # `yarn` is the offline wrapper, so the argument has another name.
   yarnClassic ? pkgs.yarn,
@@ -34,6 +47,7 @@ writeShellApplication {
   name = "yarn-classic-purifier";
   runtimeInputs = [
     coreutils
+    curl
     jq
     nix-prefetch-git
     nodejs
@@ -43,11 +57,14 @@ writeShellApplication {
     shopt -s inherit_errexit
 
     usage() {
-      echo "usage: yarn-classic-purifier lock" >&2
-      echo "       yarn-classic-purifier publish <package> [yarn publish options]" >&2
+      echo "usage: yarn-classic-purifier lock [--lockfile <path>]" >&2
+      echo "       yarn-classic-purifier prefetch [--lockfile <path>]" >&2
+      echo "       yarn-classic-purifier publish [--lockfile <path>] <package> [yarn publish options]" >&2
       exit 2
     }
     [ "$#" -ge 1 ] || usage
+    subcommand="$1"
+    shift
 
     dir="$PWD"
     while [ ! -f "$dir/yarn.lock" ]; do
@@ -58,9 +75,20 @@ writeShellApplication {
       dir="$(dirname "$dir")"
     done
     out="$dir/yarn-classic-purifier.lock.json"
+    if [ "''${1:-}" = --lockfile ]; then
+      [ "$#" -ge 2 ] || usage
+      out="$(realpath -m "$2")"
+      shift 2
+    fi
     pkgs='import ${path} { system = "${stdenv.hostPlatform.system}"; }'
 
-    # Prints attribute $2 of what nix/lib/lock.nix reads from lockfile $1,
+    ${import ../../nix/lib/mirror-script.nix {
+      flake = ../..;
+      nixpkgs = path;
+      inherit (stdenv.hostPlatform) system;
+    }}
+
+    # Prints attribute $2 of what nix/lib/lock.nix reads from yarn.lock $1,
     # with purifier lockfile $3 when it is given.
     readLock() {
       local purifier=null
@@ -71,10 +99,37 @@ writeShellApplication {
         nix eval --impure --json --expr "
           (import ${../../nix/lib}/lock.nix {
             inherit ($pkgs) lib;
-            lockFile = /. + builtins.getEnv \"YARN_CLASSIC_PURIFIER_LOCK\";
-            purifierLockFile = $purifier;
+            yarnLock = /. + builtins.getEnv \"YARN_CLASSIC_PURIFIER_LOCK\";
+            lockFile = $purifier;
           }).$2
         "
+    }
+
+    # Prints the SRI hash with algorithm $1 of standard input.
+    sri() {
+      node -e '
+        const crypto = require("crypto");
+        const fs = require("fs");
+        const algorithm = process.argv[1];
+        process.stdout.write(algorithm + "-" + crypto.createHash(algorithm).update(fs.readFileSync(0)).digest("base64"));
+      ' "$1"
+    }
+
+    # Writes the purifier lockfile $3 for yarn.lock $1 with the packages $2,
+    # a JSON list. `contentHash` is the SHA-256 of the file's JSON without
+    # it, with keys sorted and no whitespace, as nix/lib/lock.nix computes
+    # it.
+    writeLock() {
+      local body
+      body="$(jq -n --argjson packages "$2" --arg inputsHash "$(sri sha256 < "$1")" \
+        '{ version: 1, inputsHash: $inputsHash, packages: $packages }')"
+      jq --arg contentHash "$(jq -cjS . <<< "$body" | sri sha256)" \
+        '. + { contentHash: $contentHash }' <<< "$body" > "$3"
+    }
+
+    # Prints the SRI SHA-512 of the file at URL $1.
+    hashUrl() {
+      curl --fail --silent --show-error --location "$1" | sri sha512
     }
 
     # Prints the purifier lockfile entries for what yarn.lock in directory
@@ -106,7 +161,7 @@ writeShellApplication {
             fi
             nested="$(entriesFor "$checkout")"
             nestedLock="$(mktemp)"
-            jq -n --argjson packages "$nested" '{ format: 1, packages: $packages }' > "$nestedLock"
+            writeLock "$checkout/yarn.lock" "$nested" "$nestedLock"
             downloads="$(readLock "$checkout/yarn.lock" downloads "$nestedLock")"
             rm "$nestedLock"
             if [ -n "$generated" ]; then
@@ -123,17 +178,17 @@ writeShellApplication {
           fi
         else
           echo "yarn-classic-purifier: hashing $(jq -r .url <<< "$m")" >&2
-          hash="$(nix store prefetch-file --json --hash-type sha512 "$(jq -r .url <<< "$m")" | jq -r .hash)"
-          entries="$(jq --arg resolved "$resolved" --arg url "$(jq -r .url <<< "$m")" --arg hash "$hash" \
-            '. + [{ resolved: $resolved, url: $url, hash: $hash }]' <<< "$entries")"
+          hash="$(hashUrl "$(jq -r .url <<< "$m")")"
+          entries="$(jq --arg resolved "$resolved" --arg hash "$hash" \
+            '. + [{ resolved: $resolved, hash: $hash }]' <<< "$entries")"
         fi
       done < <(jq -c '.[]' <<< "$missing")
       printf '%s\n' "$entries"
     }
 
-    case "$1" in
+    case "$subcommand" in
       lock)
-        [ "$#" -eq 1 ] || usage
+        [ "$#" -eq 0 ] || usage
         entries="$(entriesFor "$dir")"
         if [ "$(jq length <<< "$entries")" = 0 ]; then
           if [ -f "$out" ]; then
@@ -144,13 +199,22 @@ writeShellApplication {
           fi
           exit 0
         fi
-        jq -n --argjson packages "$entries" '{ format: 1, packages: $packages }' > "$out"
+        writeLock "$dir/yarn.lock" "$entries" "$out"
         echo "yarn-classic-purifier: wrote $out" >&2
         ;;
+      prefetch)
+        [ "$#" -eq 0 ] || usage
+        buildMirror "$dir/yarn.lock" "$out"
+        nix-store --add-root "$(rootsOf "$dir/yarn.lock")/toolchain" --realise ${yarn} > /dev/null
+        echo "yarn-classic-purifier: prefetched the downloads and the toolchain of $dir; the yarn wrapper now works offline" >&2
+        if [ "$out" != "$dir/yarn-classic-purifier.lock.json" ]; then
+          echo "yarn-classic-purifier: set YARN_CLASSIC_PURIFIER_LOCKFILE=$out for the yarn wrapper" >&2
+        fi
+        ;;
       publish)
-        [ "$#" -ge 2 ] || usage
-        package="$2"
-        shift 2
+        [ "$#" -ge 1 ] || usage
+        package="$1"
+        shift
         purifier=null
         if [ -f "$out" ]; then
           purifier='/. + builtins.getEnv "YARN_CLASSIC_PURIFIER_PURIFIER_LOCK"'
@@ -162,7 +226,7 @@ writeShellApplication {
               purifier = (builtins.getFlake \"path:${../..}\").lib.purifier;
               pkgs = $pkgs;
               src = /. + builtins.getEnv \"YARN_CLASSIC_PURIFIER_SRC\";
-              purifierLockFile = $purifier;
+              lockFile = $purifier;
               package = builtins.getEnv \"YARN_CLASSIC_PURIFIER_PACKAGE\";
             }
           ")"
