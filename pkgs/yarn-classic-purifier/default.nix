@@ -14,6 +14,11 @@
 # and its own `contentHash`. The command reads yarn.lock with the reader a
 # build uses (nix/lib/lock.nix), and removes the file when nothing needs it.
 #
+# `yarn-classic-purifier update [<package>...]` re-resolves the named
+# packages, or all of them, with `yarn upgrade`, within the ranges that
+# package.json declares, and then writes the purifier lockfile for the new
+# yarn.lock as `lock` does. `lock` keeps Yarn's resolution as it is.
+#
 # `yarn-classic-purifier prefetch` builds the offline mirror of the
 # project's lockfiles and keeps it, and the `yarn` wrapper with the
 # Node.js, Yarn, node-gyp and Python it runs, alive with garbage-collector
@@ -58,6 +63,7 @@ writeShellApplication {
 
     usage() {
       echo "usage: yarn-classic-purifier lock [--lockfile <path>]" >&2
+      echo "       yarn-classic-purifier update [--lockfile <path>] [<package>...]" >&2
       echo "       yarn-classic-purifier prefetch [--lockfile <path>]" >&2
       echo "       yarn-classic-purifier publish [--lockfile <path>] <package> [yarn publish options]" >&2
       exit 2
@@ -186,21 +192,36 @@ writeShellApplication {
       printf '%s\n' "$entries"
     }
 
+    # Writes the purifier lockfile for the project's yarn.lock as it is, or
+    # removes it when yarn.lock records everything.
+    lock() {
+      local entries
+      entries="$(entriesFor "$dir")"
+      if [ "$(jq length <<< "$entries")" = 0 ]; then
+        if [ -f "$out" ]; then
+          rm "$out"
+          echo "yarn-classic-purifier: yarn.lock records everything; removed $out" >&2
+        else
+          echo "yarn-classic-purifier: yarn.lock records everything; no purifier lockfile is needed" >&2
+        fi
+        return
+      fi
+      writeLock "$dir/yarn.lock" "$entries" "$out"
+      echo "yarn-classic-purifier: wrote $out" >&2
+    }
+
     case "$subcommand" in
       lock)
         [ "$#" -eq 0 ] || usage
-        entries="$(entriesFor "$dir")"
-        if [ "$(jq length <<< "$entries")" = 0 ]; then
-          if [ -f "$out" ]; then
-            rm "$out"
-            echo "yarn-classic-purifier: yarn.lock records everything; removed $out" >&2
-          else
-            echo "yarn-classic-purifier: yarn.lock records everything; no purifier lockfile is needed" >&2
-          fi
-          exit 0
-        fi
-        writeLock "$dir/yarn.lock" "$entries" "$out"
-        echo "yarn-classic-purifier: wrote $out" >&2
+        lock
+        ;;
+      update)
+        # Yarn re-resolves the named packages, or all of them, within the
+        # ranges package.json declares, and rewrites yarn.lock. Install
+        # scripts do not run here; the next install through the yarn
+        # wrapper runs them.
+        (cd "$dir" && ${lib.getExe yarnClassic} upgrade "$@" --ignore-scripts --non-interactive)
+        lock
         ;;
       prefetch)
         [ "$#" -eq 0 ] || usage

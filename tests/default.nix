@@ -274,6 +274,61 @@ in
         touch $out
       '';
 
+  # `yarn-classic-purifier update` of the update fixture, which pins kleur
+  # 4.0.0 within the range ^4.0.0, moves kleur past 4.0.0 in yarn.lock and
+  # relocks the purifier lockfile against it, so that reading both
+  # lockfiles reports no problem. The update needs the network, so the
+  # check is a fixed-output build with an empty output, named after a
+  # digest of the command and the fixture.
+  conformance-update =
+    let
+      digest = builtins.hashString "sha256" (
+        lib.concatMapStrings builtins.readFile [
+          ../pkgs/yarn-classic-purifier/default.nix
+          ../nix/lib/lock.nix
+          ../nix/lib/read-lock.nix
+          ./fixtures/update/package.json
+          ./fixtures/update/yarn.lock
+          ./fixtures/update/yarn-classic-purifier.lock.json
+        ]
+      );
+    in
+    pkgs.runCommand "conformance-update-${builtins.substring 0 16 digest}"
+      {
+        nativeBuildInputs = [
+          command
+          pkgs.nix
+          pkgs.cacert
+        ];
+        outputHashMode = "flat";
+        outputHashAlgo = "sha256";
+        outputHash = builtins.hashString "sha256" "";
+      }
+      ''
+        export HOME="$TMPDIR/home"
+        mkdir -p "$HOME"
+        export SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
+        export NIX_CONFIG=$'experimental-features = nix-command\nstore = dummy://'
+        cp -r ${./fixtures/update} project
+        chmod -R u+w project
+        cd project
+        yarn-classic-purifier update
+        if grep -q 'kleur-4.0.0.tgz' yarn.lock; then
+          echo "the update left kleur at 4.0.0" >&2
+          exit 1
+        fi
+        problems="$(nix eval --impure --json --expr '
+          (import ${../nix/lib}/read-lock.nix { lib = import ${pkgs.path}/lib; } {
+            src = /. + builtins.getEnv "PWD";
+          }).problems
+        ')"
+        if [ "$problems" != "[]" ]; then
+          echo "the updated lockfiles have problems: $problems" >&2
+          exit 1
+        fi
+        touch $out
+      '';
+
   # The installed package of the app fixture. CI builds it a second time
   # with `nix build --rebuild`, which fails when the output differs.
   conformance-rebuild = app.packages.hello-yarn;

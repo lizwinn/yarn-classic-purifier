@@ -90,7 +90,13 @@ the project, and runs Yarn offline against it. It rebuilds the mirror when a
 lockfile changes. The commands that change `yarn.lock` (`add`, `upgrade`,
 `upgrade-interactive`, `remove` and `import`) resolve against the registry,
 as Yarn does without the wrapper; run `yarn-classic-purifier lock`
-afterwards. `YARN_CLASSIC_PURIFIER=0` turns the wrapper off, and
+afterwards.
+
+`yarn-classic-purifier update [<package>...]` updates both lockfiles in one
+run. It re-resolves the named packages, or all of them, with
+`yarn upgrade`, within the ranges that `package.json` declares, and then
+locks the purifier lockfile against the new `yarn.lock`.
+`yarn-classic-purifier lock` keeps Yarn's resolution as it is. `YARN_CLASSIC_PURIFIER=0` turns the wrapper off, and
 `YARN_CLASSIC_PURIFIER_LOCKFILE` names a purifier lockfile kept elsewhere.
 
 The install runs the dependencies' install scripts and the project's own
