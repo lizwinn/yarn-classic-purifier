@@ -21,17 +21,29 @@ project's repository, where the builder and the commands look for them by
 default. A project whose packages all come from a registry has no purifier
 lockfile.
 
+Then build the project from its directory. The command adds no Nix file to
+the project; replace `my-app` with the name of a package of the project:
+
+```zsh
+nix build --impure --expr '
+  let
+    purifier = builtins.getFlake "github:nix-purifiers/yarn-classic-purifier";
+    pkgs = import purifier.inputs.nixpkgs {
+      system = builtins.currentSystem;
+      overlays = [ purifier.overlays.default ];
+    };
+  in
+  (pkgs.yarn-classic-purifier.buildYarnClassicProject { src = ./.; }).packages.my-app'
+```
+
 The flake's `overlays.default` adds one attribute to a package set: the
 scope `yarn-classic-purifier`, made with `lib.makeScope`. The scope holds
 the builder `buildYarnClassicProject`, the command `yarn-classic-purifier`
-and the `yarn` wrapper. A package written for `callPackage` takes the scope
-by name:
+and the `yarn` wrapper.
 
-```nix
-# package.nix
-{ yarn-classic-purifier }:
-(yarn-classic-purifier.buildYarnClassicProject { src = ./.; }).packages.my-app
-```
+A project whose authors want a flake can package itself with one. The flake
+calls the builder directly, and it can live in the project's repository or
+in another one:
 
 ```nix
 {
@@ -43,23 +55,20 @@ by name:
       system = "x86_64-linux";
       pkgs = import nixpkgs {
         inherit system;
-        overlays = [
-          yarn-classic-purifier.overlays.default
-          (final: prev: { my-app = final.callPackage ./package.nix { }; })
-        ];
+        overlays = [ yarn-classic-purifier.overlays.default ];
       };
+      project = pkgs.yarn-classic-purifier.buildYarnClassicProject { src = ./.; };
     in
     {
-      packages.${system}.my-app = pkgs.my-app;
-      checks.${system}.tests =
-        (pkgs.yarn-classic-purifier.buildYarnClassicProject { src = ./.; }).tests;
+      packages.${system}.my-app = project.packages.my-app;
+      checks.${system}.tests = project.tests;
     };
 }
 ```
 
-`yarn-classic-purifier.overrideScope` replaces what everything in the scope
-shares, and `buildYarnClassicProject.override` replaces the packages that
-the builder takes by name, such as `nodejs`. The builder returns these
+`yarn-classic-purifier.overrideScope` replaces what everything in the
+scope shares, and `buildYarnClassicProject.override` replaces the packages
+that the builder takes by name, such as `nodejs`. The builder returns these
 attributes:
 
 - `packages.<name>` is package `<name>` of the project, installed with its
@@ -245,8 +254,23 @@ nix run github:nix-purifiers/yarn-classic-purifier#yarn-classic-purifier -- lock
 ```
 
 immer's `yarn.lock` records every tarball, so the command reports that no
-purifier lockfile is needed and writes none. Then fetch everything that
-development needs, and use Yarn as usual from the dev shell:
+purifier lockfile is needed and writes none. Build the library from the
+clone:
+
+```zsh
+nix build --impure --expr '
+  let
+    purifier = builtins.getFlake "github:nix-purifiers/yarn-classic-purifier";
+    pkgs = import purifier.inputs.nixpkgs {
+      system = builtins.currentSystem;
+      overlays = [ purifier.overlays.default ];
+    };
+  in
+  (pkgs.yarn-classic-purifier.buildYarnClassicProject { src = ./.; }).packages.immer'
+```
+
+To work on it, fetch everything that development needs, and use Yarn as
+usual from the dev shell:
 
 ```zsh
 nix run github:nix-purifiers/yarn-classic-purifier#yarn-classic-purifier -- prefetch
@@ -287,8 +311,8 @@ source input and gives the builder the scripts to run:
 }
 ```
 
-`nix build` then builds the library, and `nix flake check` runs its tests in
-the sandbox.
+`nix build` in the directory of that flake then builds the library, and
+`nix flake check` runs its tests in the sandbox.
 
 ### A project whose `yarn.lock` leaves hashes out
 
