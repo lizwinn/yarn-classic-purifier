@@ -517,15 +517,32 @@ in
   # package ships a prebuilt Linux binary that the install patches.
   immer =
     let
-      project = buildYarnClassicProject {
-        src = pkgs.fetchFromGitHub {
-          owner = "immerjs";
-          repo = "immer";
-          rev = "75a290e44ba14bd723c8ef8546b6559c8ef3ae88";
-          hash = "sha256-XOeu1biJRgglGW0Zz2cVPt14e4Rh1N2h87wtC6XQLEE=";
-        };
-        doCheck = true;
-      };
+      project = buildYarnClassicProject (
+        {
+          src = pkgs.fetchFromGitHub {
+            owner = "immerjs";
+            repo = "immer";
+            rev = "75a290e44ba14bd723c8ef8546b6559c8ef3ae88";
+            hash = "sha256-XOeu1biJRgglGW0Zz2cVPt14e4Rh1N2h87wtC6XQLEE=";
+          };
+        }
+        # immer's `test` script ends with Flow, and the flow-bin 0.123 that
+        # immer pins has no binary for aarch64-linux. There the check runs
+        # the other two parts of `test`: the source tests and the tests of
+        # the built package.
+        // (
+          if pkgs.stdenv.hostPlatform.isx86_64 then
+            { doCheck = true; }
+          else
+            {
+              buildScripts = [
+                "build"
+                "test:src"
+                "test:build"
+              ];
+            }
+        )
+      );
     in
     pkgs.runCommand "immer-check"
       {
