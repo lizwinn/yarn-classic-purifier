@@ -119,9 +119,9 @@ addon links against goes in `buildInputs`.
 lockfiles and keeps it alive with a garbage-collector root at
 `.yarn-classic-purifier/mirror`, in the directory that holds the purifier
 lockfile. It also roots the `yarn` wrapper with the Node.js, Yarn, node-gyp
-and Python it runs, at `.yarn-classic-purifier/toolchain`. After a prefetch, the `yarn` wrapper
-installs, builds and tests the project with the network cut off, until a
-lockfile changes. We recommend adding `.yarn-classic-purifier` to
+and Python it runs, at `.yarn-classic-purifier/toolchain`. After a
+prefetch, the `yarn` wrapper installs, builds and tests the project with
+the network cut off, until a lockfile changes. We recommend adding `.yarn-classic-purifier` to
 `.gitignore`.
 
 ## Editor
@@ -189,22 +189,81 @@ Limitations:
 - A git dependency over ssh from a host other than GitHub, GitLab or
   Bitbucket needs credentials that the sandbox does not have. The purifier
   fetches the https URL for those three hosts.
+- A package that ships a prebuilt binary only for some systems fails on the
+  others. Leave the script that runs it out of `buildScripts` and
+  `testScripts` on those systems. For example, old versions of the Flow type
+  checker have no aarch64-linux binary.
 
 ## Examples
 
-CI builds these projects from their own `yarn.lock`, as examples of what
-the purifier handles. They are not a full list of the projects that work.
+### immer
 
-- immer at `75a290e44ba14bd723c8ef8546b6559c8ef3ae88` needs no purifier
-  lockfile, because its `yarn.lock` records every tarball. A flake check
-  builds it and runs its tests on both systems. On x86_64-linux the tests
-  are vitest, the tests of the built package and Flow. The flow-bin 0.123
-  that immer pins has no aarch64-linux binary, so on aarch64-linux the tests
-  leave Flow out. Flow's prebuilt binary is why the install patches
-  binaries.
-- `tests/fixtures/remote` locks a git dependency and a GitHub tarball, and
-  `tests/fixtures/git-prepare` locks a git dependency whose repository has
-  a `prepare` script. CI relocks the first and builds both.
+[immer](https://github.com/immerjs/immer) is a TypeScript library that
+builds with Yarn Classic. To work on it with the locked downloads, clone it
+and lock it:
+
+```zsh
+git clone https://github.com/immerjs/immer
+cd immer
+nix run github:nix-purifiers/yarn-classic-purifier#yarn-classic-purifier -- lock
+```
+
+immer's `yarn.lock` records every tarball, so the command reports that no
+purifier lockfile is needed and writes none. Then fetch everything that
+development needs, and use Yarn as usual from the dev shell:
+
+```zsh
+nix run github:nix-purifiers/yarn-classic-purifier#yarn-classic-purifier -- prefetch
+nix develop github:nix-purifiers/yarn-classic-purifier
+yarn install
+yarn build
+yarn test:src
+```
+
+A packaging flake can build immer without changing it. It takes immer as a
+source input and gives the builder the scripts to run:
+
+```nix
+{
+  inputs.yarn-classic-purifier.url = "github:nix-purifiers/yarn-classic-purifier";
+  inputs.nixpkgs.follows = "yarn-classic-purifier/nixpkgs";
+  inputs.immer = {
+    url = "github:immerjs/immer";
+    flake = false;
+  };
+
+  outputs = { nixpkgs, yarn-classic-purifier, immer, ... }:
+    let
+      system = "x86_64-linux";
+      pkgs = nixpkgs.legacyPackages.${system};
+      project = yarn-classic-purifier.lib.yarn-classic-purifier.buildYarnClassicProject {
+        inherit pkgs;
+        src = immer;
+        testScripts = [ "test:src" "test:build" ];
+      };
+    in
+    {
+      packages.${system}.immer = project.packages.immer;
+      checks.${system}.tests = project.tests;
+    };
+}
+```
+
+`nix build` then builds the library, and `nix flake check` runs its tests in
+the sandbox.
+
+### A project whose `yarn.lock` leaves hashes out
+
+A project with a GitHub or git dependency needs the purifier lockfile. A
+packaging flake keeps that file in its own tree. In the project, run:
+
+```zsh
+nix run github:nix-purifiers/yarn-classic-purifier#yarn-classic-purifier -- lock --lockfile ../packaging/my-project.lock.json
+```
+
+Then add `lockFile = ./my-project.lock.json;` to the call of
+`buildYarnClassicProject`. Later `update` and `prefetch` runs take the same
+`--lockfile` flag, or the variable `YARN_CLASSIC_PURIFIER_LOCKFILE`.
 
 ## Credits
 
