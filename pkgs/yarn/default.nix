@@ -22,6 +22,7 @@
   python3,
   pkgs,
   coreutils,
+  jq,
   path,
   stdenv,
   # Yarn Classic from nixpkgs. Inside this flake's package scope the name
@@ -34,6 +35,7 @@ writeShellApplication {
   # scripts that build native addons get node-gyp and Python.
   runtimeInputs = [
     coreutils
+    jq
     nodejs
     node-gyp
     python3
@@ -77,10 +79,11 @@ writeShellApplication {
       inherit (stdenv.hostPlatform) system;
     }}
 
-    buildMirror "$dir/yarn.lock" "''${YARN_CLASSIC_PURIFIER_LOCKFILE:-$dir/yarn-classic-purifier.lock.json}"
+    lockfile="''${YARN_CLASSIC_PURIFIER_LOCKFILE:-$dir/yarn-classic-purifier.lock.json}"
+    buildMirror "$dir/yarn.lock" "$lockfile"
 
     export YARN_YARN_OFFLINE_MIRROR
-    YARN_YARN_OFFLINE_MIRROR="$(rootsOf "$dir/yarn.lock")/mirror"
+    YARN_YARN_OFFLINE_MIRROR="$(rootsOf "$lockfile")/mirror"
     export YARN_YARN_OFFLINE_MIRROR_PRUNING=false
     export YARN_DISABLE_SELF_UPDATE_CHECK=true
     # node-gyp takes the headers of the Node.js that runs it rather than

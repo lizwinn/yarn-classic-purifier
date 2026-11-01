@@ -352,9 +352,29 @@ in
     touch $out
   '';
 
-  # A project whose source holds no lockfiles builds from a yarn.lock and
-  # a purifier lockfile kept outside it, as a packaging flake does.
+  # A fixture whose source holds the build tool's own files, including
+  # yarn.lock, and no purifier lockfile builds from a purifier lockfile
+  # kept outside it, as a packaging flake does.
   conformance-external =
+    let
+      project = buildYarnClassicProject {
+        src = lib.cleanSourceWith {
+          src = ./fixtures/remote;
+          filter = path: _: baseNameOf path != "yarn-classic-purifier.lock.json";
+        };
+        lockFile = ./fixtures/remote/yarn-classic-purifier.lock.json;
+      };
+    in
+    pkgs.runCommand "conformance-external"
+      { nativeBuildInputs = [ project.packages.remote-dependencies ]; }
+      ''
+        remote-dependencies | grep -qx '..git ..tarball'
+        touch $out
+      '';
+
+  # A project whose source holds no lockfiles at all builds from a yarn.lock
+  # and a purifier lockfile kept outside it.
+  external-yarn-lock =
     let
       project = buildYarnClassicProject {
         src = lib.cleanSourceWith {
@@ -370,10 +390,47 @@ in
         lockFile = ./fixtures/remote/yarn-classic-purifier.lock.json;
       };
     in
-    pkgs.runCommand "conformance-external"
+    pkgs.runCommand "external-yarn-lock-check"
       { nativeBuildInputs = [ project.packages.remote-dependencies ]; }
       ''
         remote-dependencies | grep -qx '..git ..tarball'
+        touch $out
+      '';
+
+  # A purifier lockfile that is not JSON at all cannot become a problem,
+  # because Nix cannot catch a parse error. Reading it fails evaluation with
+  # an error context that names the command, and the commands check the
+  # file before Nix reads it.
+  conformance-malformed-json =
+    pkgs.runCommand "conformance-malformed-json"
+      {
+        nativeBuildInputs = [
+          command
+          pkgs.nix
+        ];
+      }
+      ''
+        export HOME="$TMPDIR/home"
+        mkdir -p "$HOME"
+        export NIX_CONFIG=$'experimental-features = nix-command\nstore = dummy://'
+        cp -r ${./fixtures/remote} project
+        chmod -R u+w project
+        cd project
+        echo 'this is not JSON' > yarn-classic-purifier.lock.json
+        if yarn-classic-purifier prefetch 2> prefetch.log; then
+          echo "prefetch accepted a lockfile that is not JSON" >&2
+          exit 1
+        fi
+        grep -q 'is not valid JSON. Run `yarn-classic-purifier lock`' prefetch.log
+        if nix eval --impure --expr '
+          (import ${../nix/lib}/read-lock.nix { lib = import ${pkgs.path}/lib; } {
+            src = /. + builtins.getEnv "PWD";
+          }).problems
+        ' 2> eval.log; then
+          echo "readLock accepted a lockfile that is not JSON" >&2
+          exit 1
+        fi
+        grep -q 'is not valid JSON. Run `yarn-classic-purifier lock`' eval.log
         touch $out
       '';
 

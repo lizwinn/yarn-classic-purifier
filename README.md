@@ -96,8 +96,14 @@ afterwards.
 run. It re-resolves the named packages, or all of them, with
 `yarn upgrade`, within the ranges that `package.json` declares, and then
 locks the purifier lockfile against the new `yarn.lock`.
-`yarn-classic-purifier lock` keeps Yarn's resolution as it is. `YARN_CLASSIC_PURIFIER=0` turns the wrapper off, and
-`YARN_CLASSIC_PURIFIER_LOCKFILE` names a purifier lockfile kept elsewhere.
+`yarn-classic-purifier lock` keeps Yarn's resolution as it is.
+
+`YARN_CLASSIC_PURIFIER=0` turns the wrapper off. The purifier lockfile lies
+beside `yarn.lock` by default. For a lockfile kept elsewhere, the commands
+take `--lockfile <path>` or the environment variable
+`YARN_CLASSIC_PURIFIER_LOCKFILE`, the wrapper takes the variable, and the
+flag takes precedence over the variable. The dev shell of a flake that
+passes `lockFile` to the builder can set the variable to the same path.
 
 The install runs the dependencies' install scripts and the project's own
 lifecycle scripts, as `yarn install` does. In the sandbox it first patches
@@ -111,9 +117,9 @@ addon links against goes in `buildInputs`.
 
 `yarn-classic-purifier prefetch` builds the offline mirror of the project's
 lockfiles and keeps it alive with a garbage-collector root at
-`.yarn-classic-purifier/mirror`. It also roots the `yarn` wrapper with the
-Node.js, Yarn, node-gyp and Python it runs, at
-`.yarn-classic-purifier/toolchain`. After a prefetch, the `yarn` wrapper
+`.yarn-classic-purifier/mirror`, in the directory that holds the purifier
+lockfile. It also roots the `yarn` wrapper with the Node.js, Yarn, node-gyp
+and Python it runs, at `.yarn-classic-purifier/toolchain`. After a prefetch, the `yarn` wrapper
 installs, builds and tests the project with the network cut off, until a
 lockfile changes. We recommend adding `.yarn-classic-purifier` to
 `.gitignore`.
@@ -135,6 +141,7 @@ Each error names the command that fixes it.
 | `... records nothing for these packages` | A git dependency or a tarball without a hash in `yarn.lock` has no entry in the purifier lockfile. | Run `yarn-classic-purifier lock`. |
 | `... was changed after yarn-classic-purifier lock wrote it` | The purifier lockfile was edited by hand, so its content no longer matches its `contentHash`. | Run `yarn-classic-purifier lock`. |
 | `... has version ...`, `... holds no JSON object`, `... lacks its contentHash`, `... has a malformed package entry` | The purifier lockfile is not one this version reads. | Run `yarn-classic-purifier lock`. |
+| `... is not valid JSON` | The purifier lockfile is not JSON at all. Nix cannot catch a parse error, so the commands check the file first and evaluation fails with this message. | Run `yarn-classic-purifier lock`. |
 | `hash mismatch in fixed-output derivation` | A tarball at a locked URL changed. | Check the source, then run `yarn-classic-purifier lock`. |
 | `Can't make a request in offline mode` for a tarball | A tarball in the offline mirror differs from the integrity in `yarn.lock`, and Yarn tried to download it. | Run `yarn-classic-purifier prefetch`; if it persists, the mirror was altered. |
 

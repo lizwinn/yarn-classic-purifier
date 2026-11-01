@@ -80,7 +80,9 @@ writeShellApplication {
       fi
       dir="$(dirname "$dir")"
     done
-    out="$dir/yarn-classic-purifier.lock.json"
+    # The purifier lockfile: the flag, else YARN_CLASSIC_PURIFIER_LOCKFILE,
+    # else the file beside yarn.lock.
+    out="$(realpath -m "''${YARN_CLASSIC_PURIFIER_LOCKFILE:-$dir/yarn-classic-purifier.lock.json}")"
     if [ "''${1:-}" = --lockfile ]; then
       [ "$#" -ge 2 ] || usage
       out="$(realpath -m "$2")"
@@ -225,8 +227,9 @@ writeShellApplication {
         ;;
       prefetch)
         [ "$#" -eq 0 ] || usage
+        checkJson "$out"
         buildMirror "$dir/yarn.lock" "$out"
-        nix-store --add-root "$(rootsOf "$dir/yarn.lock")/toolchain" --realise ${yarn} > /dev/null
+        nix-store --add-root "$(rootsOf "$out")/toolchain" --realise ${yarn} > /dev/null
         echo "yarn-classic-purifier: prefetched the downloads and the toolchain of $dir; the yarn wrapper now works offline" >&2
         if [ "$out" != "$dir/yarn-classic-purifier.lock.json" ]; then
           echo "yarn-classic-purifier: set YARN_CLASSIC_PURIFIER_LOCKFILE=$out for the yarn wrapper" >&2
@@ -236,6 +239,7 @@ writeShellApplication {
         [ "$#" -ge 1 ] || usage
         package="$1"
         shift
+        checkJson "$out"
         purifier=null
         if [ -f "$out" ]; then
           purifier='/. + builtins.getEnv "YARN_CLASSIC_PURIFIER_PURIFIER_LOCK"'

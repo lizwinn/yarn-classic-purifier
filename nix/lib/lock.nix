@@ -71,8 +71,18 @@ let
     in
     if values == [ ] then null else builtins.head values;
 
-  purifierLock = if lockFile == null then null else lib.importJSON lockFile;
   lockName = baseNameOf (toString lockFile);
+
+  # Nix cannot catch a JSON parse error, so a file that is not JSON at all
+  # fails evaluation, with an error context that names the fix. The
+  # commands check the file before Nix reads it.
+  purifierLock =
+    if lockFile == null then
+      null
+    else
+      builtins.addErrorContext "yarn-classic-purifier: ${lockName} is not valid JSON. Run `yarn-classic-purifier lock`." (
+        lib.importJSON lockFile
+      );
 
   # Why the purifier lockfile cannot be used, or null.
   lockProblem =
