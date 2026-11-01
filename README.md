@@ -102,7 +102,10 @@ default), `doCheck` (runs the `test` script), `node`, `nativeBuildInputs`,
 `buildInputs` and `srcFilter`.
 
 The install runs the dependencies' install scripts and the project's own
-lifecycle scripts, as `yarn install` does. node-gyp builds native addons
+lifecycle scripts, as `yarn install` does. Before they run, it patches the
+interpreters of scripts and the dynamic loader of prebuilt Linux binaries
+in packages, such as Flow's, because the sandbox has neither
+`/usr/bin/env` nor `/lib64/ld-linux`. node-gyp builds native addons
 against the headers of the Node.js that runs the build. A library that a
 native addon links against goes in `buildInputs`.
 
@@ -137,6 +140,14 @@ the `yarn` wrapper, the `yarn-classic-purifier` command and Node.js.
 - A git dependency over ssh from a host other than GitHub, GitLab or
   Bitbucket needs credentials that the sandbox does not have. The purifier
   fetches the https URL for those three hosts.
+
+## Projects tried
+
+- immer at `75a290e44ba14bd723c8ef8546b6559c8ef3ae88` (1,278 locked
+  tarballs, no purifier lockfile needed) builds and passes its whole test
+  suite in the sandbox: vitest, the tests of the built package and Flow. A
+  flake check builds it. Flow's prebuilt binary is why the install patches
+  binaries.
 
 ## License
 
