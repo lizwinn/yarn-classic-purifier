@@ -1,0 +1,7 @@
+{
+  "name": "classic-fixture",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "scripts": { "postinstall": "semver 1.2.3 > postinstall.txt" },
+  "devDependencies": { "is-number": "^7.0.0", "semver": "^7.6.0" }
+}

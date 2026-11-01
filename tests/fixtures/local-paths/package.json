@@ -1,0 +1,10 @@
+{
+  "name": "local-paths",
+  "version": "1.0.0",
+  "bin": { "local-paths": "cli.js" },
+  "dependencies": {
+    "local-directory": "file:./vendor/local-directory",
+    "local-link": "link:./vendor/local-link",
+    "local-tarball": "file:./vendor/local-tarball-1.0.0.tgz"
+  }
+}

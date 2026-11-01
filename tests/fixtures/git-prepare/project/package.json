@@ -1,0 +1,8 @@
+{
+  "name": "uses-prepared-dependency",
+  "version": "1.0.0",
+  "bin": { "uses-prepared-dependency": "cli.js" },
+  "dependencies": {
+    "prepared-dependency": "git+https://git.example.invalid/prepared-dependency.git#0123456789abcdef0123456789abcdef01234567"
+  }
+}

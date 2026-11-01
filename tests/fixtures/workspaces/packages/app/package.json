@@ -1,0 +1,7 @@
+{
+  "name": "fixture-app",
+  "version": "2.0.0",
+  "bin": { "fixture-app": "cli.js" },
+  "dependencies": { "@fixture/greet": "1.0.0", "chalk": "^4.1.2" },
+  "scripts": { "build": "node -e \"require('fs').writeFileSync('built.txt', 'ok')\"" }
+}

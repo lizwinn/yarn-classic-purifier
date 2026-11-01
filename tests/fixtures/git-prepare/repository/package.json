@@ -1,0 +1,9 @@
+{
+  "name": "prepared-dependency",
+  "version": "1.0.0",
+  "main": "built.js",
+  "scripts": {
+    "prepare": "semver 2.0.0 > version.txt && node prepare.js"
+  },
+  "devDependencies": { "semver": "^7.6.0" }
+}
