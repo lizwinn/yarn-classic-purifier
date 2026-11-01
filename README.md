@@ -19,7 +19,15 @@ The command writes `yarn-classic-purifier.lock.json` only when `yarn.lock`
 leaves something out, and we recommend committing it with `yarn.lock`. A
 project whose packages all come from a registry has no such file.
 
-Build the project with the flake's library:
+The flake's `overlays.default` adds `buildYarnClassicProject` to a package
+set, where nixpkgs keeps its own builders. A package written for
+`callPackage` takes it by name:
+
+```nix
+# package.nix
+{ buildYarnClassicProject }:
+(buildYarnClassicProject { src = ./.; }).packages.my-app
+```
 
 ```nix
 {
@@ -29,20 +37,22 @@ Build the project with the flake's library:
   outputs = { nixpkgs, yarn-classic-purifier, ... }:
     let
       system = "x86_64-linux";
-      pkgs = nixpkgs.legacyPackages.${system};
-      project = yarn-classic-purifier.lib.yarn-classic-purifier.buildYarnClassicProject {
-        inherit pkgs;
-        src = ./.;
+      pkgs = import nixpkgs {
+        inherit system;
+        overlays = [
+          yarn-classic-purifier.overlays.default
+          (final: prev: { my-app = final.callPackage ./package.nix { }; })
+        ];
       };
     in
     {
-      packages.${system}.my-app = project.packages.my-app;
-      checks.${system}.tests = project.tests;
+      packages.${system}.my-app = pkgs.my-app;
     };
 }
 ```
 
-`buildYarnClassicProject` returns these attributes:
+`buildYarnClassicProject.override` replaces the packages that the builder
+takes by name, such as `nodejs`. The builder returns these attributes:
 
 - `packages.<name>` is package `<name>` of the project, installed with its
   production dependencies under `lib/node_modules`, with its commands in
@@ -56,12 +66,13 @@ Build the project with the flake's library:
   [purifier](https://github.com/nix-purifiers/purifier) library that the
   build fetches, for tools that read what a build downloads.
 
-Its arguments are `pkgs`, `src` and `fetchers`, and the arguments that
+The builder takes `src`, the root of the project, and `lockFile`, the
+purifier lockfile. It also takes the arguments that
 `nix/lib/build-yarn-classic-project.nix` documents: `yarnLock`,
-`lockFile`, `buildScripts` (`[ "build" ]` by default), `testScripts`
-(`[ "test" ]` by default), `node`, `nativeBuildInputs`, `buildInputs` and
-`srcFilter`. `fetchers` replaces fetchers of the purifier library, such as
-`fetchurl` with one that sends credentials to a company mirror.
+`buildScripts` (`[ "build" ]` by default), `testScripts` (`[ "test" ]` by
+default), `node`, `nativeBuildInputs`, `buildInputs` and `srcFilter`. The
+argument `fetchers` replaces fetchers of the purifier library. A
+`fetchurl` that sends credentials to a company mirror goes there.
 
 `lib.yarn-classic-purifier.readLock { src, yarnLock ? ..., lockFile ? ... }`
 reads `yarn.lock` and the purifier lockfile into the lock in memory of the
@@ -77,9 +88,9 @@ purifier lockfile in its own tree and passes it as `lockFile`, and passes
 replaces any copy in `src`. Every command takes `--lockfile <path>` for
 such a file.
 
-## Everyday loop
+## Development loop
 
-The everyday loop is Yarn itself, through the flake's `yarn` wrapper:
+The development loop is Yarn itself, through the flake's `yarn` wrapper:
 `yarn install`, `yarn run build` and `yarn test`.
 `nix develop github:nix-purifiers/yarn-classic-purifier` gives a shell with
 the wrapper, the `yarn-classic-purifier` command and Node.js.
@@ -113,7 +124,7 @@ binaries in packages, such as Flow's, because the sandbox has neither
 against the headers of the Node.js that runs Yarn. A library that a native
 addon links against goes in `buildInputs`.
 
-## Offline work
+## Working offline
 
 `yarn-classic-purifier prefetch` builds the offline mirror of the project's
 lockfiles and keeps it alive with a garbage-collector root at
@@ -131,7 +142,7 @@ TypeScript server, ESLint and Prettier are dependencies of the project, and
 `yarn install` through the wrapper puts them there from the locked
 tarballs. After a prefetch, the editor works offline too.
 
-## Errors and fixes
+## Troubleshooting
 
 Each error names the command that fixes it.
 
@@ -145,7 +156,7 @@ Each error names the command that fixes it.
 | `hash mismatch in fixed-output derivation` | A tarball at a locked URL changed. | Check the source, then run `yarn-classic-purifier lock`. |
 | `Can't make a request in offline mode` for a tarball | A tarball in the offline mirror differs from the integrity in `yarn.lock`, and Yarn tried to download it. | Run `yarn-classic-purifier prefetch`; if it persists, the mirror was altered. |
 
-## Sources supported and refused
+## Supported language repositories
 
 `yarn.lock` records the URL of every tarball the install fetches, and for a
 registry tarball an SRI `integrity`, or in older lockfiles a SHA-1 in the
@@ -235,9 +246,11 @@ source input and gives the builder the scripts to run:
   outputs = { nixpkgs, yarn-classic-purifier, immer, ... }:
     let
       system = "x86_64-linux";
-      pkgs = nixpkgs.legacyPackages.${system};
-      project = yarn-classic-purifier.lib.yarn-classic-purifier.buildYarnClassicProject {
-        inherit pkgs;
+      pkgs = import nixpkgs {
+        inherit system;
+        overlays = [ yarn-classic-purifier.overlays.default ];
+      };
+      project = pkgs.buildYarnClassicProject {
         src = immer;
         testScripts = [ "test:src" "test:build" ];
       };

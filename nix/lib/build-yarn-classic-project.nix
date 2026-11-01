@@ -6,16 +6,17 @@
 # hash, and the package.json files name the project's own packages (the
 # root and its workspaces).
 #
-# The flake's library publishes it as
-# `lib.yarn-classic-purifier.buildYarnClassicProject`:
+# The file is a package for callPackage: the first argument set is what it
+# takes from the package set by name, and the result is the builder. The
+# flake's `overlays.default` adds it to the package set as
+# `buildYarnClassicProject`, where nixpkgs keeps its own builders, so a
+# package written for callPackage takes it like any other dependency:
 #
-#   (yarn-classic-purifier.lib.yarn-classic-purifier.buildYarnClassicProject {
-#     inherit pkgs;
-#     src = ./.;
-#   }).packages.my-app
+#   { buildYarnClassicProject }:
+#   (buildYarnClassicProject { src = ./.; }).packages.my-app
 #
-# The first argument set is what the library overlay passes. The builder
-# returns
+# and `buildYarnClassicProject.override` replaces what it takes from the
+# set. The builder returns
 #
 #   packages.<name>   package <name> of the project, installed with its
 #                     production dependencies under lib/node_modules, with
@@ -32,12 +33,20 @@
 #                     the entries of the repository's yarn.lock in
 #                     `downloads`
 {
-  # The `purifier` namespace of the shared library.
+  lib,
+  stdenv,
+  callPackage,
+  nodejs,
+  # Yarn Classic from nixpkgs.
+  yarn,
+  python3,
+  node-gyp,
+  autoPatchelfHook,
+  # The `purifier` namespace of the shared library, which the overlay
+  # passes from the flake's library.
   purifier,
 }:
 {
-  # The package set the build takes its tools from.
-  pkgs,
   # The root of the Yarn project.
   src,
   # Replaces fetchers of the purifier library, such as `fetchurl` with one
@@ -58,7 +67,7 @@
       null,
   # The Node.js that runs Yarn and the project's scripts, and that the
   # packages' commands run on.
-  node ? pkgs.nodejs,
+  node ? nodejs,
   # The package scripts that build the project, run in order before the
   # packages are packed. A script the root package defines runs at the
   # root; otherwise it runs in each workspace that defines it.
@@ -69,8 +78,8 @@
   # Tools the build scripts and the dependencies' install scripts need.
   # Python and node-gyp are there for native addons.
   nativeBuildInputs ? [
-    pkgs.python3
-    pkgs.node-gyp
+    python3
+    node-gyp
   ],
   # Libraries native addons link against.
   buildInputs ? [ ],
@@ -80,14 +89,6 @@
   srcFilter ? null,
 }:
 let
-  inherit (pkgs)
-    lib
-    stdenv
-    callPackage
-    yarn
-    autoPatchelfHook
-    ;
-
   # The lock in memory (nix/lib/read-lock.nix). checkLock fails evaluation
   # with its problems, each naming the command that fixes it.
   lock = purifier.checkLock (

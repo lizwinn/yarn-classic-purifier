@@ -21,10 +21,9 @@ let
   wrapper = withOverlay.yarn-classic-purifier.yarn;
   command = withOverlay.yarn-classic-purifier.yarn-classic-purifier;
 
-  # Every fixture builds the way a consumer's flake does: through the
-  # builder of the flake's library.
-  buildYarnClassicProject =
-    args: yarn-classic-purifier.buildYarnClassicProject ({ inherit pkgs; } // args);
+  # Every fixture builds the way a consumer's package does: through
+  # `buildYarnClassicProject` of a package set that the overlay applies to.
+  inherit (withOverlay) buildYarnClassicProject;
 
   # One package with a build script, a test script, a command, a
   # dependency and a dev dependency.
@@ -333,7 +332,7 @@ in
   # with `nix build --rebuild`, which fails when the output differs.
   conformance-rebuild = app.packages.hello-yarn;
 
-  # After `yarn-classic-purifier prefetch`, the everyday loop works with no
+  # After `yarn-classic-purifier prefetch`, the development loop works with no
   # network. The sandbox has none; the project gets the state prefetch
   # leaves, from the same derivation, and the yarn wrapper installs and
   # builds the app fixture from it without running Nix.
@@ -759,7 +758,7 @@ in
   publish-tarball =
     let
       tarball = import ../nix/lib/publish.nix {
-        inherit pkgs purifier;
+        pkgs = withOverlay;
         src = ./fixtures/app;
         package = "hello-yarn";
       };
