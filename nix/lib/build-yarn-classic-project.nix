@@ -7,16 +7,15 @@
 # root and its workspaces).
 #
 # The file is a package for callPackage: the first argument set is what it
-# takes from the package set by name, and the result is the builder. The
-# flake's `overlays.default` adds it to the package set as
-# `buildYarnClassicProject`, where nixpkgs keeps its own builders, so a
-# package written for callPackage takes it like any other dependency:
+# takes by name from the scope `pkgs.yarn-classic-purifier`, which the
+# flake's `overlays.default` adds to the package set, and the result is the
+# builder. A package written for callPackage takes the scope by name:
 #
-#   { buildYarnClassicProject }:
-#   (buildYarnClassicProject { src = ./.; }).packages.my-app
+#   { yarn-classic-purifier }:
+#   (yarn-classic-purifier.buildYarnClassicProject { src = ./.; }).packages.my-app
 #
-# and `buildYarnClassicProject.override` replaces what it takes from the
-# set. The builder returns
+# and `buildYarnClassicProject.override` replaces what the builder takes.
+# The builder returns
 #
 #   packages.<name>   package <name> of the project, installed with its
 #                     production dependencies under lib/node_modules, with
@@ -118,6 +117,7 @@ let
     inherit
       downloads
       node
+      yarn
       purifier
       fetchers
       ;

@@ -16,17 +16,21 @@ nix run github:nix-purifiers/yarn-classic-purifier#yarn-classic-purifier -- lock
 ```
 
 The command writes `yarn-classic-purifier.lock.json` only when `yarn.lock`
-leaves something out, and we recommend committing it with `yarn.lock`. A
-project whose packages all come from a registry has no such file.
+leaves something out. We recommend committing both lockfiles to the
+project's repository, where the builder and the commands look for them by
+default. A project whose packages all come from a registry has no purifier
+lockfile.
 
-The flake's `overlays.default` adds `buildYarnClassicProject` to a package
-set, where nixpkgs keeps its own builders. A package written for
-`callPackage` takes it by name:
+The flake's `overlays.default` adds one attribute to a package set: the
+scope `yarn-classic-purifier`, made with `lib.makeScope`. The scope holds
+the builder `buildYarnClassicProject`, the command `yarn-classic-purifier`
+and the `yarn` wrapper. A package written for `callPackage` takes the scope
+by name:
 
 ```nix
 # package.nix
-{ buildYarnClassicProject }:
-(buildYarnClassicProject { src = ./.; }).packages.my-app
+{ yarn-classic-purifier }:
+(yarn-classic-purifier.buildYarnClassicProject { src = ./.; }).packages.my-app
 ```
 
 ```nix
@@ -47,12 +51,16 @@ set, where nixpkgs keeps its own builders. A package written for
     in
     {
       packages.${system}.my-app = pkgs.my-app;
+      checks.${system}.tests =
+        (pkgs.yarn-classic-purifier.buildYarnClassicProject { src = ./.; }).tests;
     };
 }
 ```
 
-`buildYarnClassicProject.override` replaces the packages that the builder
-takes by name, such as `nodejs`. The builder returns these attributes:
+`yarn-classic-purifier.overrideScope` replaces what everything in the scope
+shares, and `buildYarnClassicProject.override` replaces the packages that
+the builder takes by name, such as `nodejs`. The builder returns these
+attributes:
 
 - `packages.<name>` is package `<name>` of the project, installed with its
   production dependencies under `lib/node_modules`, with its commands in
@@ -66,13 +74,14 @@ takes by name, such as `nodejs`. The builder returns these attributes:
   [purifier](https://github.com/nix-purifiers/purifier) library that the
   build fetches, for tools that read what a build downloads.
 
-The builder takes `src`, the root of the project, and `lockFile`, the
-purifier lockfile. It also takes the arguments that
-`nix/lib/build-yarn-classic-project.nix` documents: `yarnLock`,
-`buildScripts` (`[ "build" ]` by default), `testScripts` (`[ "test" ]` by
-default), `node`, `nativeBuildInputs`, `buildInputs` and `srcFilter`. The
-argument `fetchers` replaces fetchers of the purifier library. A
-`fetchurl` that sends credentials to a company mirror goes there.
+The builder takes `src`, the root of the project, `lockFile`, the purifier
+lockfile, and `yarnLock`, Yarn's lockfile. The defaults are the files in
+`src`. It also takes the arguments that
+`nix/lib/build-yarn-classic-project.nix` documents: `buildScripts`
+(`[ "build" ]` by default), `testScripts` (`[ "test" ]` by default), `node`,
+`nativeBuildInputs`, `buildInputs` and `srcFilter`. The argument `fetchers`
+replaces fetchers of the purifier library. A `fetchurl` that sends
+credentials to a company mirror goes there.
 
 `lib.yarn-classic-purifier.readLock { src, yarnLock ? ..., lockFile ? ... }`
 reads `yarn.lock` and the purifier lockfile into the lock in memory of the
@@ -82,11 +91,14 @@ used, each naming the command that fixes it). The builder checks it with
 the library's `checkLock`, and tools that read what every purifier
 downloads, such as an SBOM generator, can call it directly.
 
-A packaging flake can build a project it does not change. It keeps the
-purifier lockfile in its own tree and passes it as `lockFile`, and passes
-`yarnLock` too when the project has no `yarn.lock`. A file given this way
-replaces any copy in `src`. Every command takes `--lockfile <path>` for
-such a file.
+A build can also keep its lockfiles outside the repository, which is an
+option for packaging a project that one does not change. The flake that
+calls the builder keeps the purifier lockfile in its own tree and passes it
+as `lockFile`. It can also keep its own copy of `yarn.lock` and pass it as
+`yarnLock`, which the build then uses in place of the copy in `src`. A file
+given this way replaces any copy in `src`. The commands take
+`--lockfile <path>` for the purifier lockfile and `--tool-lockfile <path>`
+for `yarn.lock`; the Development loop section describes them.
 
 ## Development loop
 
@@ -115,11 +127,18 @@ Yarn Classic has no plugin mechanism, so `yarn-classic-purifier` is a
 standalone command and the `yarn` wrapper is a script around Yarn.
 
 `YARN_CLASSIC_PURIFIER=0` turns the wrapper off. The purifier lockfile lies
-beside `yarn.lock` by default. For a lockfile kept elsewhere, the commands
-take `--lockfile <path>` or the environment variable
-`YARN_CLASSIC_PURIFIER_LOCKFILE`, the wrapper takes the variable, and the
-flag takes precedence over the variable. The dev shell of a flake that
-passes `lockFile` to the builder can set the variable to the same path.
+beside `yarn.lock` by default. For lockfiles kept outside the repository,
+the commands take `--lockfile <path>` for the purifier lockfile and
+`--tool-lockfile <path>` for `yarn.lock`, or the environment variables
+`YARN_CLASSIC_PURIFIER_LOCKFILE` and `YARN_CLASSIC_PURIFIER_TOOL_LOCKFILE`.
+The wrapper takes the variables, and a flag takes precedence over its
+variable. The dev shell of a flake that passes `lockFile` and `yarnLock` to
+the builder can set the variables to the same paths. With a tool lockfile,
+`lock` and `update` write the `yarn.lock` there and leave the project's own
+copy as it is, starting from that copy when the tool lockfile does not
+exist yet. The development loop itself runs Yarn on the project's own
+`yarn.lock`, so an external build suits a project that one packages without
+developing it.
 
 The install runs the dependencies' install scripts and the project's own
 lifecycle scripts, as `yarn install` does. In the sandbox it first patches
@@ -256,7 +275,7 @@ source input and gives the builder the scripts to run:
         inherit system;
         overlays = [ yarn-classic-purifier.overlays.default ];
       };
-      project = pkgs.buildYarnClassicProject {
+      project = pkgs.yarn-classic-purifier.buildYarnClassicProject {
         src = immer;
         testScripts = [ "test:src" "test:build" ];
       };
@@ -273,16 +292,28 @@ the sandbox.
 
 ### A project whose `yarn.lock` leaves hashes out
 
-A project with a GitHub or git dependency needs the purifier lockfile. A
-packaging flake keeps that file in its own tree. In the project, run:
+A project with a GitHub or git dependency needs the purifier lockfile. In
+the project, run the lock command and commit both lockfiles:
 
 ```zsh
-nix run github:nix-purifiers/yarn-classic-purifier#yarn-classic-purifier -- lock --lockfile ../packaging/my-project.lock.json
+nix run github:nix-purifiers/yarn-classic-purifier#yarn-classic-purifier -- lock
+git add yarn.lock yarn-classic-purifier.lock.json
 ```
 
-Then add `lockFile = ./my-project.lock.json;` to the call of
-`buildYarnClassicProject`. Later `update` and `prefetch` runs take the same
-`--lockfile` flag, or the variable `YARN_CLASSIC_PURIFIER_LOCKFILE`.
+### A packaging flake for a project one does not change
+
+A flake that packages someone else's project can keep both lockfiles in its
+own tree. In a clone of the project, run:
+
+```zsh
+nix run github:nix-purifiers/yarn-classic-purifier#yarn-classic-purifier -- lock --lockfile ../packaging/my-project.lock.json --tool-lockfile ../packaging/my-project.yarn.lock
+```
+
+The clone's own `yarn.lock` stays as it is, and the new `yarn.lock` starts
+from it. Then pass both files to the builder with
+`lockFile = ./my-project.lock.json;` and `yarnLock = ./my-project.yarn.lock;`.
+Later `update` and `prefetch` runs take the same flags, or the variables
+`YARN_CLASSIC_PURIFIER_LOCKFILE` and `YARN_CLASSIC_PURIFIER_TOOL_LOCKFILE`.
 
 ## Credits
 

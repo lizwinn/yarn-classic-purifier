@@ -1,0 +1,9 @@
+{
+  "name": "remote-dependencies",
+  "version": "1.0.0",
+  "bin": { "remote-dependencies": "cli.js" },
+  "dependencies": {
+    "left-pad": "git+https://github.com/stevemao/left-pad.git#v1.3.0",
+    "pad-left": "github:jonschlinkert/pad-left#2.1.0"
+  }
+}

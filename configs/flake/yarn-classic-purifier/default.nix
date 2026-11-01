@@ -16,12 +16,13 @@
       inherit (libOverlays) default;
     };
 
-    # The packages are the `default` entry of this flake's package overlay
-    # registry (pkg-overlays/): the package set applies it by default, and
-    # the flake exports it as `pkgOverlays` and as the plain
-    # `overlays.default`.
+    # The scope `pkgs.yarn-classic-purifier` is the `default` entry of this
+    # flake's package overlay registry (pkg-overlays/): the package set
+    # applies it by default, and the flake exports it as `pkgOverlays` and
+    # as the plain `overlays.default`. The scope also holds the builder, a
+    # function, so the flake exports its two commands as `packages` itself.
     nixpkgs = {
-      packages.export.enabled = true;
+      packages.export.enabled = false;
     };
   };
 
@@ -33,7 +34,10 @@
   perSystem =
     { config, pkgs, ... }:
     {
-      packages.default = config.packages.yarn;
+      packages = {
+        inherit (pkgs.yarn-classic-purifier) yarn yarn-classic-purifier;
+        default = config.packages.yarn;
+      };
       devShells.default = pkgs.mkShell {
         packages = [
           config.packages.yarn

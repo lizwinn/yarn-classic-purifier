@@ -9,7 +9,8 @@
 # network.
 #
 # The purifier lockfile is yarn-classic-purifier.lock.json beside yarn.lock,
-# or the file that YARN_CLASSIC_PURIFIER_LOCKFILE names.
+# or the file that YARN_CLASSIC_PURIFIER_LOCKFILE names, and the yarn.lock is
+# the one beside it or the file that YARN_CLASSIC_PURIFIER_TOOL_LOCKFILE names.
 #
 # The commands that change the lockfile (add, upgrade, upgrade-interactive,
 # remove, import) resolve against the registry, as Yarn does without the
@@ -80,7 +81,8 @@ writeShellApplication {
     }}
 
     lockfile="''${YARN_CLASSIC_PURIFIER_LOCKFILE:-$dir/yarn-classic-purifier.lock.json}"
-    buildMirror "$dir/yarn.lock" "$lockfile"
+    toolLock="''${YARN_CLASSIC_PURIFIER_TOOL_LOCKFILE:-$dir/yarn.lock}"
+    buildMirror "$toolLock" "$lockfile"
 
     export YARN_YARN_OFFLINE_MIRROR
     YARN_YARN_OFFLINE_MIRROR="$(rootsOf "$lockfile")/mirror"

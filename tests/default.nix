@@ -23,7 +23,7 @@ let
 
   # Every fixture builds the way a consumer's package does: through
   # `buildYarnClassicProject` of a package set that the overlay applies to.
-  inherit (withOverlay) buildYarnClassicProject;
+  inherit (withOverlay.yarn-classic-purifier) buildYarnClassicProject;
 
   # One package with a build script, a test script, a command, a
   # dependency and a dev dependency.
@@ -270,6 +270,19 @@ in
           diff ${./fixtures/relock/yarn-classic-purifier.lock.json} yarn-classic-purifier.lock.json >&2
           exit 1
         fi
+        cd ..
+        # With both lockfiles outside the project, lock starts the tool
+        # lockfile from the project's own yarn.lock, writes both outside,
+        # and leaves the project as it is.
+        cp -r ${./fixtures/relock} external
+        chmod -R u+w external
+        rm external/yarn-classic-purifier.lock.json
+        cd external
+        yarn-classic-purifier lock --lockfile ../out/lock.json --tool-lockfile ../out/yarn.lock
+        cmp ../out/lock.json ${./fixtures/relock/yarn-classic-purifier.lock.json}
+        cmp ../out/yarn.lock ${./fixtures/relock/yarn.lock}
+        cmp yarn.lock ${./fixtures/relock/yarn.lock}
+        test ! -e yarn-classic-purifier.lock.json
         touch $out
       '';
 
@@ -353,7 +366,9 @@ in
 
   # A fixture whose source holds the build tool's own files, including
   # yarn.lock, and no purifier lockfile builds from a purifier lockfile
-  # kept outside it, as a packaging flake does.
+  # kept outside it, as a packaging flake does. A fixture whose own
+  # yarn.lock is stale also builds, with the yarn.lock that the caller
+  # passes in its place.
   conformance-external =
     let
       project = buildYarnClassicProject {
@@ -363,9 +378,19 @@ in
         };
         lockFile = ./fixtures/remote/yarn-classic-purifier.lock.json;
       };
+      replaced = buildYarnClassicProject {
+        src = ./fixtures/external-stale;
+        yarnLock = ./fixtures/remote/yarn.lock;
+        lockFile = ./fixtures/remote/yarn-classic-purifier.lock.json;
+      };
     in
     pkgs.runCommand "conformance-external"
-      { nativeBuildInputs = [ project.packages.remote-dependencies ]; }
+      {
+        nativeBuildInputs = [
+          project.packages.remote-dependencies
+          replaced.packages.remote-dependencies
+        ];
+      }
       ''
         remote-dependencies | grep -qx '..git ..tarball'
         touch $out

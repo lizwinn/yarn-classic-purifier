@@ -19,10 +19,14 @@
 # checkouts leave them out too.
 {
   lib,
-  pkgs,
   stdenv,
   callPackage,
   runCommand,
+  fetchurl,
+  fetchgit,
+  unzip,
+  zstd,
+  writeText,
   # The `purifier` namespace of the shared library.
   purifier,
   # Replaces fetchers of the purifier library; its fetchEntry and tree take
@@ -43,16 +47,29 @@
 let
   steps = import ./yarn-install.nix { inherit lib node; };
 
+  # The packages that the library's fetchEntry and tree take by name.
+  libraryPackages = {
+    inherit
+      fetchurl
+      fetchgit
+      runCommand
+      unzip
+      zstd
+      python3
+      writeText
+      ;
+  };
+
   files = purifier.tree (
-    fetchers
+    libraryPackages
+    // fetchers
     // {
-      inherit pkgs;
       name = "${name}-files";
       entries = builtins.filter (d: !(d ? git)) downloads;
     }
   );
 
-  checkout = purifier.fetchEntry (fetchers // { inherit pkgs; });
+  checkout = purifier.fetchEntry (libraryPackages // fetchers);
 
   # Writes the files of directory $1 at the root of tar file $2, in a
   # fixed order and with fixed owners and times. The files come from the
@@ -96,6 +113,7 @@ let
             inherit (d) downloads;
             inherit
               node
+              yarn
               fetchers
               purifier
               ;
