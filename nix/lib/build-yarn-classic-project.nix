@@ -37,6 +37,7 @@
   yarn,
   python3,
   node-gyp,
+  autoPatchelfHook,
 }:
 {
   # The root of the Yarn project.
@@ -117,6 +118,11 @@ let
   tarballName = p: (builtins.replaceStrings [ "@" "/" ] [ "" "__" ] p.name) + ".tgz";
 
   steps = import ./yarn-install.nix { inherit lib node; };
+
+  # Prebuilt Linux binaries in packages get their dynamic loader and
+  # libraries from the store; the install steps patch them.
+  binaryPatching = lib.optionals stdenv.hostPlatform.isLinux [ autoPatchelfHook ];
+  binaryLibraries = lib.optionals stdenv.hostPlatform.isLinux [ stdenv.cc.cc.lib ];
   yarnSetup = steps.setup dependencies;
   yarnInstall = steps.install;
 
@@ -144,8 +150,10 @@ let
       node
       yarn
     ]
-    ++ nativeBuildInputs;
-    inherit buildInputs;
+    ++ nativeBuildInputs
+    ++ binaryPatching;
+    buildInputs = buildInputs ++ binaryLibraries;
+    autoPatchelfIgnoreMissingDeps = [ "*" ];
     dontConfigure = true;
     buildPhase = ''
       runHook preBuild
@@ -179,8 +187,10 @@ let
       node
       yarn
     ]
-    ++ nativeBuildInputs;
-    inherit buildInputs;
+    ++ nativeBuildInputs
+    ++ binaryPatching;
+    buildInputs = buildInputs ++ binaryLibraries;
+    autoPatchelfIgnoreMissingDeps = [ "*" ];
     dontConfigure = true;
     # The project's own install scripts often run tools from its
     # devDependencies, which a production install leaves out. They build

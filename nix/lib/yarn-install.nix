@@ -34,11 +34,13 @@
 
   # Installs the locked dependencies and runs the install scripts. The
   # sandbox has no /usr/bin/env, so a script that runs a dependency's
-  # command needs that command's interpreter patched first. A first install
-  # without scripts fills Yarn's cache, which holds the packages' files
-  # that Yarn copies into node_modules; the interpreters are patched in the
-  # cache and in the project, and the second install copies the patched
-  # files and runs the scripts.
+  # command needs that command's interpreter patched first, and a
+  # prebuilt Linux binary in a package, such as Flow's, needs its dynamic
+  # loader and libraries set to ones in the store. A first install without
+  # scripts fills Yarn's cache, which holds the packages' files that Yarn
+  # copies into node_modules; the interpreters and binaries are patched in
+  # the cache and in the project, and the second install copies the
+  # patched files and runs the scripts.
   install =
     flags:
     let
@@ -55,6 +57,9 @@
     ''
       yarn install ${args} --ignore-scripts
       patchShebangs "$YARN_CACHE_FOLDER" > /dev/null
+      if declare -F autoPatchelf > /dev/null; then
+        autoPatchelf "$YARN_CACHE_FOLDER"
+      fi
       while IFS= read -r -d "" dir; do
         rm -rf "$dir"
       done < <(find . -name node_modules -type d -prune -print0)

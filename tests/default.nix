@@ -391,6 +391,34 @@ in
         touch $out
       '';
 
+  # A real-world project, pinned: immer, built and tested from its own
+  # yarn.lock, with no purifier lockfile. Its tests include Flow, whose
+  # package ships a prebuilt Linux binary that the install patches.
+  immer =
+    let
+      project = buildYarnClassicProject {
+        src = pkgs.fetchFromGitHub {
+          owner = "immerjs";
+          repo = "immer";
+          rev = "75a290e44ba14bd723c8ef8546b6559c8ef3ae88";
+          hash = "sha256-XOeu1biJRgglGW0Zz2cVPt14e4Rh1N2h87wtC6XQLEE=";
+        };
+        doCheck = true;
+      };
+    in
+    pkgs.runCommand "immer-check"
+      {
+        nativeBuildInputs = [ pkgs.nodejs ];
+      }
+      ''
+        NODE_PATH=${project.packages.immer}/lib/node_modules node -e '
+          const { produce } = require("immer");
+          const next = produce({ a: 1 }, (draft) => { draft.a = 2; });
+          if (next.a !== 2) process.exit(1);
+        '
+        touch $out
+      '';
+
   # The wrapper and the lock command build.
   yarn = withOverlay.yarn-classic-purifier.yarn;
   yarn-classic-purifier = withOverlay.yarn-classic-purifier.yarn-classic-purifier;
