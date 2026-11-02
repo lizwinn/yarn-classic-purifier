@@ -13,9 +13,7 @@ For Yarn 2 and later, use
 From the project root:
 
 ```zsh
-nix shell \
-  'github:nix-purifiers/yarn-classic-purifier#yarn' \
-  'github:nix-purifiers/yarn-classic-purifier#yarn-classic-purifier'
+nix shell 'github:nix-purifiers/yarn-classic-purifier#toolchain'
 yarn-classic-purifier lock
 yarn install
 yarn run build
@@ -44,7 +42,7 @@ For persistent use, add these packages through your usual Nix configuration.
 
 The development loop is Yarn itself, through the flake's `yarn` wrapper:
 `yarn install`, `yarn run build` and `yarn test`.
-`nix develop github:nix-purifiers/yarn-classic-purifier` gives a shell with
+`nix shell 'github:nix-purifiers/yarn-classic-purifier#toolchain'` gives a shell with
 the wrapper, the `yarn-classic-purifier` command and Node.js.
 
 In a project with a `yarn.lock`, the wrapper builds the same offline mirror
@@ -317,12 +315,12 @@ in
 ```
 
 To work on it, fetch everything that development needs, and use Yarn as
-usual from the dev shell:
+usual from the toolchain environment:
 
 ```zsh
 nix run \
   'github:nix-purifiers/yarn-classic-purifier#yarn-classic-purifier' -- prefetch
-nix develop github:nix-purifiers/yarn-classic-purifier
+nix shell 'github:nix-purifiers/yarn-classic-purifier#toolchain'
 yarn install
 yarn build
 yarn test:src
