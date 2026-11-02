@@ -13,7 +13,9 @@ For Yarn 2 and later, use
 Install the integration into your Nix profile once:
 
 ```sh
-nix profile install 'github:nix-purifiers/yarn-classic-purifier#yarn' 'github:nix-purifiers/yarn-classic-purifier#yarn-classic-purifier'
+nix profile install \
+  'github:nix-purifiers/yarn-classic-purifier#yarn' \
+  'github:nix-purifiers/yarn-classic-purifier#yarn-classic-purifier'
 ```
 
 This installs the `yarn` wrapper. Use it for the locked
@@ -119,14 +121,17 @@ in another one:
   inputs.yarn-classic-purifier.url = "github:nix-purifiers/yarn-classic-purifier";
   inputs.nixpkgs.follows = "yarn-classic-purifier/nixpkgs";
 
-  outputs = { nixpkgs, yarn-classic-purifier, ... }:
+  outputs =
+    { nixpkgs, yarn-classic-purifier, ... }:
     let
       system = "x86_64-linux";
       pkgs = import nixpkgs {
         inherit system;
         overlays = [ yarn-classic-purifier.overlays.default ];
       };
-      project = pkgs.yarn-classic-purifier.buildYarnClassicProject { src = ./.; };
+      project = pkgs.yarn-classic-purifier.buildYarnClassicProject {
+        src = ./.;
+      };
     in
     {
       packages.${system}.my-app = project.packages.my-app;
@@ -184,15 +189,16 @@ For an ad hoc build, the builder can also be evaluated directly from the
 project root. Replace the example package name with one from your project:
 
 ```zsh
-nix build --impure --expr '
-  let
-    purifier = builtins.getFlake "github:nix-purifiers/yarn-classic-purifier";
-    pkgs = import purifier.inputs.nixpkgs {
-      system = builtins.currentSystem;
-      overlays = [ purifier.overlays.default ];
-    };
-  in
-  (pkgs.yarn-classic-purifier.buildYarnClassicProject { src = ./.; }).packages.my-app'
+nix build --impure --expr 'let
+  purifier = builtins.getFlake "github:nix-purifiers/yarn-classic-purifier";
+  pkgs = import purifier.inputs.nixpkgs {
+    system = builtins.currentSystem;
+    overlays = [ purifier.overlays.default ];
+  };
+in
+(pkgs.yarn-classic-purifier.buildYarnClassicProject {
+  src = ./.;
+}).packages.my-app'
 ```
 
 This uses the purifier's pinned nixpkgs, matching the lock command above.
@@ -300,7 +306,8 @@ and lock it:
 ```zsh
 git clone https://github.com/immerjs/immer
 cd immer
-nix run 'github:nix-purifiers/yarn-classic-purifier#yarn-classic-purifier' -- lock
+nix run \
+  'github:nix-purifiers/yarn-classic-purifier#yarn-classic-purifier' -- lock
 ```
 
 immer's `yarn.lock` records every tarball, so the command reports that no
@@ -308,22 +315,24 @@ purifier lockfile is needed and writes none. Build the library from the
 clone:
 
 ```zsh
-nix build --impure --expr '
-  let
-    purifier = builtins.getFlake "github:nix-purifiers/yarn-classic-purifier";
-    pkgs = import purifier.inputs.nixpkgs {
-      system = builtins.currentSystem;
-      overlays = [ purifier.overlays.default ];
-    };
-  in
-  (pkgs.yarn-classic-purifier.buildYarnClassicProject { src = ./.; }).packages.immer'
+nix build --impure --expr 'let
+  purifier = builtins.getFlake "github:nix-purifiers/yarn-classic-purifier";
+  pkgs = import purifier.inputs.nixpkgs {
+    system = builtins.currentSystem;
+    overlays = [ purifier.overlays.default ];
+  };
+in
+(pkgs.yarn-classic-purifier.buildYarnClassicProject {
+  src = ./.;
+}).packages.immer'
 ```
 
 To work on it, fetch everything that development needs, and use Yarn as
 usual from the dev shell:
 
 ```zsh
-nix run 'github:nix-purifiers/yarn-classic-purifier#yarn-classic-purifier' -- prefetch
+nix run \
+  'github:nix-purifiers/yarn-classic-purifier#yarn-classic-purifier' -- prefetch
 nix develop github:nix-purifiers/yarn-classic-purifier
 yarn install
 yarn build
@@ -342,7 +351,13 @@ source input and gives the builder the scripts to run:
     flake = false;
   };
 
-  outputs = { nixpkgs, yarn-classic-purifier, immer, ... }:
+  outputs =
+    {
+      nixpkgs,
+      yarn-classic-purifier,
+      immer,
+      ...
+    }:
     let
       system = "x86_64-linux";
       pkgs = import nixpkgs {
@@ -351,7 +366,10 @@ source input and gives the builder the scripts to run:
       };
       project = pkgs.yarn-classic-purifier.buildYarnClassicProject {
         src = immer;
-        testScripts = [ "test:src" "test:build" ];
+        testScripts = [
+          "test:src"
+          "test:build"
+        ];
       };
     in
     {
@@ -370,7 +388,8 @@ A project with a GitHub or git dependency needs the purifier lockfile. In
 the project, run the lock command and commit both lockfiles:
 
 ```zsh
-nix run 'github:nix-purifiers/yarn-classic-purifier#yarn-classic-purifier' -- lock
+nix run \
+  'github:nix-purifiers/yarn-classic-purifier#yarn-classic-purifier' -- lock
 git add yarn.lock yarn-classic-purifier.lock.json
 ```
 
@@ -380,7 +399,8 @@ A flake that packages someone else's project can keep both lockfiles in its
 own tree. In a clone of the project, run:
 
 ```zsh
-nix run 'github:nix-purifiers/yarn-classic-purifier#yarn-classic-purifier' -- lock --lockfile ../packaging/my-project.lock.json --tool-lockfile ../packaging/my-project.yarn.lock
+nix run \
+  'github:nix-purifiers/yarn-classic-purifier#yarn-classic-purifier' -- lock --lockfile ../packaging/my-project.lock.json --tool-lockfile ../packaging/my-project.yarn.lock
 ```
 
 The clone's own `yarn.lock` stays as it is, and the new `yarn.lock` starts
