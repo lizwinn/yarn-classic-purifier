@@ -393,12 +393,7 @@ Later `update` and `prefetch` runs take the same flags, or the variables
 
 ## Credits
 
-yarn-classic-purifier follows the design of
-[sbt-nix-backend](https://github.com/nix-purifiers/sbt-purifier): the build
-tool keeps planning the build, a lockfile records every download, and Nix
-fetches the downloads and runs the build offline in its sandbox. The shared
-library of the nix-purifiers,
-[purifier](https://github.com/nix-purifiers/purifier), fetches the locked
-tarballs and git checkouts.
+The purifier idea was inspired by nixcloud's
+[cargo (libnix)](https://github.com/nixcloud/cargo).
 
-yarn-classic-purifier is licensed under the MIT license.
+Released under the MIT license; see [LICENSE](LICENSE).
