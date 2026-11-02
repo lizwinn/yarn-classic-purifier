@@ -105,8 +105,10 @@ in another one:
 
 ```nix
 {
-  inputs.yarn-classic-purifier.url = "github:nix-purifiers/yarn-classic-purifier";
-  inputs.nixpkgs.follows = "yarn-classic-purifier/nixpkgs";
+  inputs.yarn-classic-purifier.url =
+    "github:nix-purifiers/yarn-classic-purifier";
+  inputs.nixpkgs.follows =
+    "yarn-classic-purifier/nixpkgs";
 
   outputs =
     { nixpkgs, yarn-classic-purifier, ... }:
@@ -114,14 +116,19 @@ in another one:
       system = "x86_64-linux";
       pkgs = import nixpkgs {
         inherit system;
-        overlays = [ yarn-classic-purifier.overlays.default ];
+        overlays = [
+          yarn-classic-purifier.overlays.default
+        ];
       };
-      project = pkgs.yarn-classic-purifier.buildYarnClassicProject {
-        src = ./.;
-      };
+      project =
+        pkgs.yarn-classic-purifier.buildYarnClassicProject
+          {
+            src = ./.;
+          };
     in
     {
-      packages.${system}.my-app = project.packages.my-app;
+      packages.${system}.my-app =
+        project.packages.my-app;
       checks.${system}.tests = project.tests;
     };
 }
@@ -330,8 +337,10 @@ source input and gives the builder the scripts to run:
 
 ```nix
 {
-  inputs.yarn-classic-purifier.url = "github:nix-purifiers/yarn-classic-purifier";
-  inputs.nixpkgs.follows = "yarn-classic-purifier/nixpkgs";
+  inputs.yarn-classic-purifier.url =
+    "github:nix-purifiers/yarn-classic-purifier";
+  inputs.nixpkgs.follows =
+    "yarn-classic-purifier/nixpkgs";
   inputs.immer = {
     url = "github:immerjs/immer";
     flake = false;
@@ -348,15 +357,19 @@ source input and gives the builder the scripts to run:
       system = "x86_64-linux";
       pkgs = import nixpkgs {
         inherit system;
-        overlays = [ yarn-classic-purifier.overlays.default ];
-      };
-      project = pkgs.yarn-classic-purifier.buildYarnClassicProject {
-        src = immer;
-        testScripts = [
-          "test:src"
-          "test:build"
+        overlays = [
+          yarn-classic-purifier.overlays.default
         ];
       };
+      project =
+        pkgs.yarn-classic-purifier.buildYarnClassicProject
+          {
+            src = immer;
+            testScripts = [
+              "test:src"
+              "test:build"
+            ];
+          };
     in
     {
       packages.${system}.immer = project.packages.immer;
