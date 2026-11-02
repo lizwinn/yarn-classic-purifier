@@ -291,10 +291,10 @@ builds with Yarn Classic. To work on it with the locked downloads, clone it
 and lock it:
 
 ```zsh
+nix shell 'github:nix-purifiers/yarn-classic-purifier#toolchain'
 git clone https://github.com/immerjs/immer
 cd immer
-nix run \
-  'github:nix-purifiers/yarn-classic-purifier#yarn-classic-purifier' -- lock
+yarn-classic-purifier lock
 ```
 
 immer's `yarn.lock` records every tarball, so the command reports that no
@@ -318,9 +318,8 @@ To work on it, fetch everything that development needs, and use Yarn as
 usual from the toolchain environment:
 
 ```zsh
-nix run \
-  'github:nix-purifiers/yarn-classic-purifier#yarn-classic-purifier' -- prefetch
 nix shell 'github:nix-purifiers/yarn-classic-purifier#toolchain'
+yarn-classic-purifier prefetch
 yarn install
 yarn build
 yarn test:src
@@ -375,8 +374,8 @@ A project with a GitHub or git dependency needs the purifier lockfile. In
 the project, run the lock command and commit both lockfiles:
 
 ```zsh
-nix run \
-  'github:nix-purifiers/yarn-classic-purifier#yarn-classic-purifier' -- lock
+nix shell 'github:nix-purifiers/yarn-classic-purifier#toolchain'
+yarn-classic-purifier lock
 git add yarn.lock yarn-classic-purifier.lock.json
 ```
 
@@ -386,8 +385,10 @@ A flake that packages someone else's project can keep both lockfiles in its
 own tree. In a clone of the project, run:
 
 ```zsh
-nix run \
-  'github:nix-purifiers/yarn-classic-purifier#yarn-classic-purifier' -- lock --lockfile ../packaging/my-project.lock.json --tool-lockfile ../packaging/my-project.yarn.lock
+nix shell 'github:nix-purifiers/yarn-classic-purifier#toolchain'
+yarn-classic-purifier lock \
+  --lockfile ../packaging/my-project.lock.json \
+  --tool-lockfile ../packaging/my-project.yarn.lock
 ```
 
 The clone's own `yarn.lock` stays as it is, and the new `yarn.lock` starts
