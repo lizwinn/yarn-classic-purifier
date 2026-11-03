@@ -45,6 +45,7 @@
   jq,
   nix-prefetch-git,
   nodejs,
+  python3,
   pkgs,
   path,
   stdenv,
@@ -65,6 +66,13 @@ writeShellApplication {
     nodejs
   ];
   text = ''
+    if [ "''${YARN_CLASSIC_PURIFIER_REENTER:-0}" != 1 ]; then
+      exec ${python3}/bin/python ${../../tools}/composition.py \
+        --mode cli --inner "$0" --native-yarn ${lib.getExe yarnClassic} \
+        --flake ${../..} --nixpkgs ${path} --system ${stdenv.hostPlatform.system} \
+        --tools ${lib.purifier.projectInputsTool} -- "$@"
+    fi
+
     # A failure inside a command substitution stops the command too.
     shopt -s inherit_errexit
 
@@ -172,7 +180,8 @@ writeShellApplication {
     writeLock() {
       local body
       body="$(jq -n --argjson packages "$2" --arg inputsHash "$(sri sha256 < "$1")" \
-        '{ version: 1, inputsHash: $inputsHash, packages: $packages }')"
+        --argjson projectInputs "''${YARN_CLASSIC_PURIFIER_PROJECT_INPUTS:-[]}" \
+        '{ version: 1, inputsHash: $inputsHash, packages: $packages } + (if $projectInputs == [] then {} else {projectInputs: $projectInputs} end)')"
       jq --arg contentHash "$(jq -cjS . <<< "$body" | sri sha256)" \
         '. + { contentHash: $contentHash }' <<< "$body" > "$3"
     }
@@ -268,8 +277,12 @@ writeShellApplication {
     lock() {
       local entries
       startToolLock
+      if [ -n "''${YARN_CLASSIC_PURIFIER_INPUT_VIEWS_FILE:-}" ]; then
+        ${python3}/bin/python ${../../tools}/npm_inputs.py normalize --file "$toolLock" \
+          --views "$YARN_CLASSIC_PURIFIER_INPUT_VIEWS_FILE"
+      fi
       entries="$(entriesFor "$toolLock")"
-      if [ "$(jq length <<< "$entries")" = 0 ]; then
+      if [ "$(jq length <<< "$entries")" = 0 ] && [ "''${YARN_CLASSIC_PURIFIER_PROJECT_INPUTS:-[]}" = "[]" ]; then
         if [ -f "$out" ]; then
           rm "$out"
           echo "yarn-classic-purifier: yarn.lock records everything; removed $out" >&2

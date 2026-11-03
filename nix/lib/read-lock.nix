@@ -22,6 +22,8 @@
   src,
   # Yarn's lockfile.
   yarnLock ? src + "/yarn.lock",
+  providedNames ? [ ],
+  providedVersions ? [ ],
   # The purifier lockfile, or null when the project has none.
   lockFile ?
     if builtins.pathExists (src + "/yarn-classic-purifier.lock.json") then
@@ -30,7 +32,15 @@
       null,
 }:
 let
-  lock = import ./lock.nix { inherit lib yarnLock lockFile; };
+  lock = import ./lock.nix {
+    inherit
+      lib
+      yarnLock
+      lockFile
+      providedNames
+      providedVersions
+      ;
+  };
 in
 {
   purifier = "yarn-classic-purifier";

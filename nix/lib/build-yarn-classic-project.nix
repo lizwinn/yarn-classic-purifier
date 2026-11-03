@@ -39,6 +39,9 @@
   # Yarn Classic from nixpkgs.
   yarn,
   python3,
+  runCommand,
+  writeText,
+  nix,
   node-gyp,
   autoPatchelfHook,
   # The `purifier` namespace of the shared library, which the overlay
@@ -52,6 +55,10 @@
   # that sends credentials to a company mirror. The purifier library's
   # fetchEntry and tree take it unchanged.
   fetchers ? { },
+  dependencies ? purifier.lockedProjectInputs {
+    inputs = if lockFile != null then (lib.importJSON lockFile).projectInputs or [ ] else [ ];
+    system = stdenv.hostPlatform.system;
+  },
   # Yarn's lockfile. A yarn.lock given outside `src` replaces the one in
   # `src` during the build.
   yarnLock ? src + "/yarn.lock",
@@ -88,11 +95,23 @@
   srcFilter ? null,
 }:
 let
+  inputSelection = purifier.npmInputSelection { inherit dependencies; };
+  inputRepository = purifier.npmInstallRepository { inherit dependencies runCommand python3; };
+  inputViews = writeText "yarn-npm-installation-inputs.json" (
+    builtins.toJSON [
+      {
+        repository = toString inputRepository;
+        catalog = inputRepository.catalog;
+      }
+    ]
+  );
   # The lock in memory (nix/lib/read-lock.nix). checkLock fails evaluation
   # with its problems, each naming the command that fixes it.
   lock = purifier.checkLock (
     import ./read-lock.nix { inherit lib; } {
       inherit src yarnLock lockFile;
+      providedNames = inputSelection.names;
+      providedVersions = inputSelection.versions;
     }
   );
   downloads = purifier.entriesFor stdenv.hostPlatform.system lock;
@@ -105,7 +124,12 @@ let
     let
       name = baseNameOf path;
     in
-    !((type == "directory" && name == "node_modules") || name == ".git" || lib.hasPrefix "result" name);
+    !(
+      (type == "directory" && name == "node_modules")
+      || name == ".git"
+      || name == ".yarn-classic-purifier"
+      || lib.hasPrefix "result" name
+    );
 
   filteredSrc = builtins.path {
     path = src;
@@ -113,7 +137,7 @@ let
     filter = if srcFilter != null then srcFilter else defaultSrcFilter;
   };
 
-  dependencies = callPackage ./offline-mirror.nix {
+  downloadMirror = callPackage ./offline-mirror.nix {
     inherit
       downloads
       node
@@ -132,8 +156,18 @@ let
   # libraries from the store; the install steps patch them.
   binaryPatching = lib.optionals stdenv.hostPlatform.isLinux [ autoPatchelfHook ];
   binaryLibraries = lib.optionals stdenv.hostPlatform.isLinux [ stdenv.cc.cc.lib ];
-  yarnSetup = steps.setup dependencies;
-  yarnInstall = steps.install;
+  yarnSetup = steps.setup downloadMirror;
+  yarnInstall =
+    flags:
+    lib.optionalString (dependencies != [ ]) ''
+      ${python3}/bin/python ${../../tools}/npm_inputs.py bind --root "$PWD" \
+        --views ${inputViews} --state "$TMPDIR/yarn-input-manifests.json"
+        yarn install --offline --ignore-scripts --non-interactive --no-progress
+    ''
+    + steps.install flags
+    + lib.optionalString (dependencies != [ ]) ''
+      ${python3}/bin/python ${../../tools}/npm_inputs.py restore --state "$TMPDIR/yarn-input-manifests.json"
+    '';
 
   # Runs package script $1 at the root when the root defines it, and in
   # every workspace that defines it otherwise.
@@ -200,7 +234,7 @@ let
   # `yarn pack` runs the packages' prepack and postpack scripts, as
   # `yarn publish` does. The tarballs are what Yarn publishes, byte for
   # byte.
-  build = installed {
+  rawRelease = installed {
     name = "yarn-project-release";
     scripts = buildScripts;
     install = ''
@@ -325,14 +359,57 @@ let
         mainProgram = builtins.head (builtins.attrNames p.bin);
       };
     };
+  capture = installed {
+    name = "yarn-runtime-graph";
+    scripts = buildScripts;
+    install = ''
+      export NPM_PURIFIER_NPM_MODULES=${node}/lib/node_modules/npm/node_modules
+      export NPM_PROJECTION_NIX=${nix}/bin/nix
+      node ${purifier.npmCaptureTool} "$PWD" ${rawRelease} "$out" ${
+        writeText "yarn-own-packages.json" (
+          builtins.toJSON (
+            map (p: {
+              inherit (p) name dir;
+              archive = "${rawRelease}/${tarballName p}";
+            }) ownPackages
+          )
+        )
+      }
+    '';
+  };
+  projectionFor =
+    roots:
+    purifier.npmProjections {
+      graph = "${capture}/graph.json";
+      archives = "${capture}/archives";
+      producer = rawRelease;
+      inherit
+        roots
+        dependencies
+        runCommand
+        python3
+        ;
+    };
+  projections = projectionFor null;
+  build = rawRelease.overrideAttrs (previous: {
+    passthru = (previous.passthru or { }) // {
+      inherit projections;
+    };
+  });
 in
 {
-  packages = lib.mapAttrs (_: mkPackage) ownPackageSet;
+  packages = lib.mapAttrs (
+    name: p:
+    lib.extendDerivation true {
+      projections = projectionFor [ name ];
+    } (mkPackage p)
+  ) ownPackageSet;
   tests = installed {
     name = "yarn-project-tests";
     scripts = buildScripts ++ testScripts;
     install = "touch $out";
   };
   release = build;
+  inherit projections;
   fetches = lock.entries;
 }

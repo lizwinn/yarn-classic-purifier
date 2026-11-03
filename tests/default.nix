@@ -145,6 +145,23 @@ let
       }).problems;
 in
 {
+  composition-producer = workspaces.packages."@fixture/greet";
+  npm-projection =
+    pkgs.runCommand "yarn-classic-npm-projection"
+      {
+        nativeBuildInputs = [
+          pkgs.nodejs
+          pkgs.python3
+        ];
+      }
+      ''
+        export HOME="$TMPDIR/home"
+        mkdir -p "$HOME"
+        python ${./npm-projection.py} ${workspaces.packages."@fixture/greet".projections.npm} \
+          ${workspaces.packages."@fixture/greet".projections.npm.catalog} ${pkgs.nodejs}/bin
+        touch "$out"
+      '';
+
   # A purifier lockfile written for another yarn.lock fails evaluation,
   # naming `yarn-classic-purifier lock`.
   conformance-stale = evalCheck "conformance-stale" (lockFails (

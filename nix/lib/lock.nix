@@ -38,6 +38,8 @@
   yarnLock,
   # The purifier lockfile, or null when the project has none.
   lockFile ? null,
+  providedNames ? [ ],
+  providedVersions ? [ ],
 }:
 let
   text = builtins.readFile yarnLock;
@@ -269,6 +271,30 @@ let
   entryDownload =
     lines:
     let
+      names = lib.concatMap (
+        selector:
+        let
+          plain = builtins.replaceStrings [ "\"" ] [ "" ] selector;
+          matched = builtins.match "(@[^@]+|[^@]+)@(.*)" plain;
+          alias =
+            if matched == null then
+              null
+            else
+              builtins.match "npm:(@[^@]+|[^@]+)@.*" (builtins.elemAt matched 1);
+        in
+        if matched == null then
+          [ ]
+        else
+          [ (builtins.head matched) ] ++ lib.optional (alias != null) (builtins.head alias)
+      ) (lib.splitString ", " (lib.removeSuffix ":" (builtins.head lines)));
+      supplied = builtins.any (
+        name:
+        builtins.elem name providedNames
+        || builtins.elem {
+          inherit name;
+          version = field "version" lines;
+        } providedVersions
+      ) names;
       resolved = field "resolved" lines;
       integrity = field "integrity" lines;
       inherit (splitResolved resolved) url fragment;
@@ -279,7 +305,7 @@ let
     # A package without `resolved` is a `file:` directory, a `link:` or a
     # workspace, and a `file:` tarball resolves to a path; Yarn reads all of
     # them from the project source.
-    if resolved == null || lib.hasPrefix "file:" resolved then
+    if supplied || resolved == null || lib.hasPrefix "file:" resolved then
       null
     else if isGit url then
       if fragment == null then

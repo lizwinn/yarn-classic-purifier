@@ -86,6 +86,31 @@ binaries in packages, such as Flow's, because the sandbox has neither
 against the headers of the Node.js that runs Yarn. A library that a native
 addon links against goes in `buildInputs`.
 
+## Dependencies from other purified projects
+
+```zsh
+nix shell 'github:nix-purifiers/yarn-classic-purifier#toolchain'
+yarn-classic-purifier lock \
+  --input 'github:example/library#library'
+yarn install --frozen-lockfile
+yarn test
+```
+
+The producer can use Yarn Classic, Bun, npm or pnpm. Nix supplies its
+artifact identities and overrides ordinary version requests automatically.
+`projectInputs` pins the Nix sources; supplied artifacts have no download
+entries. The wrapper restores the working tree's manifests and native lock
+after each command.
+
+The builder accepts producer outputs through `dependencies = [ library ];`
+and uses recorded `projectInputs` by default. It exports `projections.npm`;
+individual `packages.<name>` and `release` also expose native repositories.
+
+For a composed project, `yarn-classic-purifier publish <name>` publishes
+namespaced archives with exact dependency requirements and the `nix` tag.
+Ordinary package managers can consume the result. A published dependency
+is reused only when its integrity matches the Nix input.
+
 ## Building the project with Nix
 
 Once the native development workflow is working, you can also build and

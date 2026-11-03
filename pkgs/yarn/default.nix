@@ -42,7 +42,17 @@ writeShellApplication {
     python3
   ];
   text = ''
+    if [ "''${YARN_CLASSIC_PURIFIER_REENTER:-0}" != 1 ]; then
+      exec ${python3}/bin/python ${../../tools}/composition.py \
+        --mode tool --inner "$0" --native-yarn ${lib.getExe yarnClassic} \
+        --flake ${../..} --nixpkgs ${path} --system ${stdenv.hostPlatform.system} \
+        --tools ${lib.purifier.projectInputsTool} -- "$@"
+    fi
+
     yarn=${lib.getExe yarnClassic}
+    if [ "''${YARN_CLASSIC_PURIFIER_NATIVE_CONTEXT:-0}" = 1 ]; then
+      exec "$yarn" --offline "$@"
+    fi
 
     if [ "''${YARN_CLASSIC_PURIFIER:-1}" = 0 ]; then
       exec "$yarn" "$@"
@@ -61,7 +71,11 @@ writeShellApplication {
     done
     # The project root is the nearest directory upwards with a lockfile.
     dir="$PWD"
-    while [ ! -f "$dir/yarn.lock" ]; do
+    marker=yarn.lock
+    if [ -n "''${YARN_CLASSIC_PURIFIER_TOOL_LOCKFILE:-}" ] && [ -f "$YARN_CLASSIC_PURIFIER_TOOL_LOCKFILE" ]; then
+      marker=package.json
+    fi
+    while [ ! -f "$dir/$marker" ]; do
       if [ "$dir" = / ]; then
         echo "yarn-classic-purifier: warning: no yarn.lock found; running yarn impurely. Run \`yarn-classic-purifier lock\` to use Nix-resolved dependencies." >&2
         exec "$yarn" "$@"
@@ -95,6 +109,11 @@ writeShellApplication {
     mirror="$(cd "$dir" && "$yarn" config get yarn-offline-mirror --offline --silent)"
     if [ "$mirror" != "$YARN_YARN_OFFLINE_MIRROR" ] && [ "$mirror" != undefined ]; then
       echo "yarn-classic-purifier: the project sets its own offline mirror ($mirror), which Yarn reads instead of the locked tarballs" >&2
+    fi
+    if [ "''${YARN_CLASSIC_PURIFIER_INPUT_VIEWS:-[]}" != "[]" ] || [ "$toolLock" != "$dir/yarn.lock" ]; then
+      exec ${python3}/bin/python ${../../tools}/native.py --root "$dir" \
+        --tool-lock "$toolLock" --views "''${YARN_CLASSIC_PURIFIER_INPUT_VIEWS:-[]}" \
+        -- "$yarn" --offline "$@"
     fi
     exec "$yarn" --offline "$@"
   '';

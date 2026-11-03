@@ -15,12 +15,18 @@
   lockFile ? null,
 }:
 let
-  lock = purifier.checkLock (
-    import ./read-lock.nix { inherit (pkgs) lib; } {
-      src = dirOf yarnLock;
-      inherit yarnLock lockFile;
-    }
-  );
+  nativeLock = import ./lock.nix {
+    inherit (pkgs) lib;
+    inherit yarnLock lockFile;
+  };
+  # The mirror needs the native download graph, including when the lock is
+  # kept outside the project. Package outputs belong to the project builder.
+  lock = purifier.checkLock {
+    purifier = "yarn-classic-purifier";
+    entries = nativeLock.downloads;
+    outputs = { };
+    inherit (nativeLock) problems;
+  };
 in
 pkgs.callPackage ./offline-mirror.nix {
   downloads = purifier.entriesFor pkgs.stdenv.hostPlatform.system lock;
