@@ -838,6 +838,10 @@ in
         export HOME="$TMPDIR/home"
         mkdir -p "$HOME"
         node ${./registry.js} "$TMPDIR/port" "$TMPDIR/body" &
+        # Darwin builds have no PID namespace, so a registry left running
+        # would keep the build's log open after the builder exits.
+        server=$!
+        trap 'kill $server' EXIT
         while [ ! -s "$TMPDIR/port" ]; do sleep 0.1; done
         registry="http://127.0.0.1:$(cat "$TMPDIR/port")/"
         echo "//127.0.0.1:$(cat "$TMPDIR/port")/:_authToken=token" > "$HOME/.npmrc"
@@ -864,9 +868,9 @@ in
           hash = "sha256-XOeu1biJRgglGW0Zz2cVPt14e4Rh1N2h87wtC6XQLEE=";
         };
         # immer's `test` script ends with Flow, and the flow-bin 0.123 that
-        # immer pins has no binary for aarch64-linux. There the tests are
-        # the other two parts of `test`: the source tests and the tests of
-        # the built package.
+        # immer pins has no binary for aarch64-linux or aarch64-darwin.
+        # There the tests are the other two parts of `test`: the source
+        # tests and the tests of the built package.
         testScripts =
           if pkgs.stdenv.hostPlatform.isx86_64 then
             [ "test" ]
