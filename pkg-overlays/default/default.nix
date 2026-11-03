@@ -25,6 +25,7 @@ in
     // {
       yarn-classic-purifier = scoped.yarn-classic-purifier.overrideScope (
         self: _: {
+          inherit (closure-lib) purifier;
           # The scope's own `yarn` is the offline wrapper, so the builder
           # takes Yarn Classic from nixpkgs explicitly.
           buildYarnClassicProject = self.callPackage ../../nix/lib/build-yarn-classic-project.nix {

@@ -38,6 +38,7 @@
 # lockfile does not exist yet.
 {
   lib,
+  purifier,
   writeShellApplication,
   coreutils,
   curl,
@@ -70,7 +71,7 @@ writeShellApplication {
       exec ${python3}/bin/python ${../../tools}/composition.py \
         --mode cli --inner "$0" --native-yarn ${lib.getExe yarnClassic} \
         --flake ${../..} --nixpkgs ${path} --system ${stdenv.hostPlatform.system} \
-        --tools ${lib.purifier.projectInputsTool} -- "$@"
+        --tools ${purifier.projectInputsTool} -- "$@"
     fi
 
     # A failure inside a command substitution stops the command too.

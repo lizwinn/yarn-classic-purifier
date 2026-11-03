@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 from npm_inputs import normalize_lock
 
 parser = argparse.ArgumentParser(description=__doc__)
@@ -25,7 +26,7 @@ try:
     if views:
         normalize_lock(file, views, args.root)
         rebound = subprocess.run([command[0],'install','--offline','--ignore-scripts','--non-interactive','--no-progress'],
-            cwd=args.root,env=env)
+            cwd=args.root,env=env,stdout=sys.stderr)
         if rebound.returncode:
             raise SystemExit(rebound.returncode)
     code = subprocess.run(command, env=env).returncode

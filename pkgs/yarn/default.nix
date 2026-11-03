@@ -17,6 +17,7 @@
 # wrapper. YARN_CLASSIC_PURIFIER=0 turns the wrapper off for any command.
 {
   lib,
+  purifier,
   writeShellApplication,
   nodejs,
   node-gyp,
@@ -46,7 +47,7 @@ writeShellApplication {
       exec ${python3}/bin/python ${../../tools}/composition.py \
         --mode tool --inner "$0" --native-yarn ${lib.getExe yarnClassic} \
         --flake ${../..} --nixpkgs ${path} --system ${stdenv.hostPlatform.system} \
-        --tools ${lib.purifier.projectInputsTool} -- "$@"
+        --tools ${purifier.projectInputsTool} -- "$@"
     fi
 
     yarn=${lib.getExe yarnClassic}

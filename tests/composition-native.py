@@ -49,6 +49,8 @@ with tempfile.TemporaryDirectory(prefix='yarn-classic-native-composition-') as t
     run(cli,'prefetch')
     run(cli.parent/'yarn','install','--frozen-lockfile')
     run(cli.parent/'yarn','run','test')
+    output = run(cli.parent/'yarn','--silent','node','-e','process.stdout.write("pure-output")',capture_output=True,text=True)
+    assert output.stdout == 'pure-output'
     run(sdk/'bin/node','-e','const greet=require("@fixture/greet");if(greet("nix")!=="hello Nix")process.exit(1)')
     assert (project/'package.json').read_bytes() == original
     assert before == (lockfile.read_bytes(), (project/'yarn.lock').read_bytes())
@@ -57,15 +59,17 @@ with tempfile.TemporaryDirectory(prefix='yarn-classic-native-composition-') as t
       let f=builtins.getFlake ("path:"+source);
           pkgs=import f.inputs.nixpkgs {system=builtins.currentSystem;overlays=[f.overlays.default];};
           result=pkgs.yarn-classic-purifier.buildYarnClassicProject {src = /. + project;};
-      in assert result.fetches == []; result.tests
+      in assert pkgs.yarn-classic-purifier.yarn.drvPath != "";
+         assert pkgs.yarn-classic-purifier.yarn-classic-purifier.drvPath != "";
+         assert result.fetches == []; result.tests
     ''')
     run('nix','build','--impure','--file',expression,'--argstr','source',snapshot,
         '--argstr','project',project,'--out-link',temporary/'pure')
     assert (project/'package.json').read_bytes() == original
     assert before == (lockfile.read_bytes(), (project/'yarn.lock').read_bytes())
     publication = temporary/'publication.nix'
-    publication.write_text(expression.read_text().replace('in assert result.fetches == []; result.tests',
-        'in result.packages."yarn-classic-composed".projections.npm'))
+    publication.write_text(expression.read_text().replace('result.tests',
+        'result.packages."yarn-classic-composed".projections.npm'))
     repository = Path(subprocess.check_output(['nix','build','--impure','--file',str(publication),
         '--argstr','source',snapshot,'--argstr','project',str(project),
         '--out-link',str(temporary/'publication'),'--print-out-paths'],text=True).strip())
