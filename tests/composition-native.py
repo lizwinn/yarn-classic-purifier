@@ -14,7 +14,7 @@ import subprocess
 import tempfile
 root = Path(__file__).resolve().parent.parent
 system = subprocess.check_output(['nix','eval','--impure','--raw','--expr','builtins.currentSystem'], text=True).strip()
-snapshot = json.loads(subprocess.check_output(['nix','flake','metadata','--json','--no-write-lock-file',str(root)], text=True))['path']
+snapshot = json.loads(subprocess.check_output(['nix','flake','archive','--json','--no-write-lock-file',str(root)], text=True))['path']
 with tempfile.TemporaryDirectory(prefix='yarn-classic-native-composition-') as temporary:
     temporary = Path(temporary)
     subprocess.run(['nix-store','--add-root',str(temporary/'source'),'--realise',snapshot],check=True)
