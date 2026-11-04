@@ -7,6 +7,8 @@
 # with a garbage-collector root in the project.
 {
   pkgs,
+  node ? pkgs.nodejs,
+  yarn ? pkgs.yarn,
   # The `purifier` namespace of the shared library.
   purifier,
   # The project's yarn.lock.
@@ -30,5 +32,5 @@ let
 in
 pkgs.callPackage ./offline-mirror.nix {
   downloads = purifier.entriesFor pkgs.stdenv.hostPlatform.system lock;
-  inherit purifier;
+  inherit purifier node yarn;
 }

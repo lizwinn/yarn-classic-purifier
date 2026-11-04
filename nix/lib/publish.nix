@@ -7,6 +7,8 @@
 # package name.
 {
   pkgs,
+  node ? pkgs.nodejs,
+  yarnClassic ? pkgs.yarn,
   # The project root.
   src,
   # Yarn's lockfile.
@@ -17,7 +19,14 @@
   package,
 }:
 let
-  project = pkgs.yarn-classic-purifier.buildYarnClassicProject { inherit src yarnLock lockFile; };
+  project = (pkgs.yarn-classic-purifier.buildYarnClassicProject.override { yarn = yarnClassic; }) {
+    inherit
+      src
+      yarnLock
+      lockFile
+      node
+      ;
+  };
   file = (builtins.replaceStrings [ "@" "/" ] [ "" "__" ] package) + ".tgz";
 in
 pkgs.runCommand "yarn-classic-purifier-publish" { } ''

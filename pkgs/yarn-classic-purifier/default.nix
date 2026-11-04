@@ -40,9 +40,12 @@
   lib,
   purifier,
   writeShellApplication,
+  writeShellScript,
+  runtimeShell,
   coreutils,
   curl,
   gnutar,
+  gzip,
   jq,
   nix-prefetch-git,
   nodejs,
@@ -56,17 +59,27 @@
   # `yarn` is the offline wrapper, so the argument has another name.
   yarnClassic ? pkgs.yarn,
 }:
+let
+  scriptShell = writeShellScript "yarn-project-script-shell" ''
+    export PATH=${nodejs}/bin:"$PATH"
+    export NODE=${nodejs}/bin/node
+    export npm_node_execpath=${nodejs}/bin/node
+    exec ${runtimeShell} "$@"
+  '';
+in
 writeShellApplication {
   name = "yarn-classic-purifier";
   runtimeInputs = [
     coreutils
     curl
     gnutar
+    gzip
     jq
     nix-prefetch-git
     nodejs
   ];
   text = ''
+    export YARN_SCRIPT_SHELL=${scriptShell}
     if [ "''${YARN_CLASSIC_PURIFIER_REENTER:-0}" != 1 ]; then
       exec ${python3}/bin/python ${../../tools}/composition.py \
         --mode cli --inner "$0" --native-yarn ${lib.getExe yarnClassic} \
@@ -144,6 +157,8 @@ writeShellApplication {
     ${import ../../nix/lib/mirror-script.nix {
       flake = ../..;
       nixpkgs = path;
+      node = nodejs;
+      yarn = yarnClassic;
       inherit (stdenv.hostPlatform) system;
     }}
 
@@ -354,12 +369,22 @@ writeShellApplication {
               src = /. + builtins.getEnv \"YARN_CLASSIC_PURIFIER_SRC\";
               yarnLock = /. + builtins.getEnv \"YARN_CLASSIC_PURIFIER_YARN_LOCK\";
               lockFile = $purifier;
+              node = builtins.storePath \"${nodejs}\";
+              yarnClassic = builtins.storePath \"${yarnClassic}\";
               package = builtins.getEnv \"YARN_CLASSIC_PURIFIER_PACKAGE\";
             }
           ")"
         echo "yarn-classic-purifier: publishing $tarball/package.tgz" >&2
-        cd "$dir"
-        exec ${lib.getExe yarnClassic} publish "$tarball/package.tgz" --non-interactive "$@"
+        # Native Yarn reads package metadata from cwd even for a tarball.
+        # Give it the selected package's built manifest rather than a private
+        # workspace root, and contain any native version edits in staging.
+        mkdir -p "$dir/.yarn-classic-purifier"
+        publishStage="$(mktemp -d "$dir/.yarn-classic-purifier/publish.XXXXXX")"
+        trap 'rm -rf "$publishStage"' EXIT
+        publishArchive="$(realpath "$tarball/package.tgz")"
+        tar -xzf "$publishArchive" -C "$publishStage"
+        cd "$publishStage/package"
+        ${lib.getExe yarnClassic} publish "$publishArchive" --non-interactive "$@"
         ;;
       *)
         usage

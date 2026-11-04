@@ -145,7 +145,12 @@ let
       }).problems;
 in
 {
-  legacy-node = import ./legacy-node.nix { inherit pkgs buildYarnClassicProject; };
+  archive-timestamps =
+    pkgs.runCommand "yarn-archive-timestamps" { nativeBuildInputs = [ pkgs.python3 ]; }
+      ''
+        python ${./test_archive_timestamps.py} ${../tools/archive_timestamps.py}
+        touch "$out"
+      '';
   composition-producer = workspaces.packages."@fixture/greet";
   npm-projection =
     pkgs.runCommand "yarn-classic-npm-projection"
@@ -375,7 +380,14 @@ in
     cd project
     mkdir .yarn-classic-purifier
     ln -s ${appMirror} .yarn-classic-purifier/mirror
-    cat yarn.lock | sha256sum | cut -d' ' -f1 > .yarn-classic-purifier/lock.sha256
+    ${import ../nix/lib/mirror-script.nix {
+      flake = ../.;
+      nixpkgs = pkgs.path;
+      node = pkgs.nodejs;
+      yarn = pkgs.yarn;
+      system = pkgs.stdenv.hostPlatform.system;
+    }}
+    stampOf yarn.lock yarn-classic-purifier.lock.json > .yarn-classic-purifier/lock.sha256
     yarn install --frozen-lockfile
     yarn run build
     yarn run test
@@ -882,4 +894,29 @@ in
   # The wrapper and the command build.
   yarn = wrapper;
   yarn-classic-purifier = command;
+}
+// lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+  legacy-node-addon = import ./legacy-addon.nix { inherit pkgs buildYarnClassicProject; };
+  legacy-node-tools = import ./legacy-tools.nix {
+    inherit pkgs;
+    scope = withOverlay.yarn-classic-purifier;
+  };
+  legacy-node = import ./legacy-node.nix { inherit pkgs buildYarnClassicProject; };
+  legacy-node-4 = import ./legacy-node.nix {
+    inherit pkgs buildYarnClassicProject;
+    version = "4.9.1";
+    abi = "46";
+  };
+  prerelease-node = import ./legacy-node.nix {
+    inherit pkgs buildYarnClassicProject;
+    version = "26.1.0-rc.0";
+    abi = null;
+  };
+}
+// lib.optionalAttrs (pkgs.stdenv.hostPlatform.system == "x86_64-linux") {
+  legacy-node-0 = import ./legacy-node.nix {
+    inherit pkgs buildYarnClassicProject;
+    version = "0.12.18";
+    abi = "14";
+  };
 }

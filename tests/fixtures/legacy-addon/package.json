@@ -1,0 +1,9 @@
+{
+  "name": "legacy-addon",
+  "version": "1.0.0",
+  "main": "addon.node",
+  "scripts": {
+    "build": "cc -shared -fPIC -DNODE_GYP_MODULE_NAME=legacyaddon -I$npm_config_nodedir/include/node addon.c -o addon.node",
+    "test": "node -e \"if(require('./addon.node').answer !== 42) process.exit(1)\""
+  }
+}

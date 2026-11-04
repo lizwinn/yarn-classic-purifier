@@ -171,7 +171,11 @@ attributes:
 - `tests` is the project after `yarn install`, its build scripts and its
   test scripts, run in the sandbox.
 - `release` holds one tarball per package, made by `yarn pack` after the
-  build scripts. `yarn-classic-purifier publish` uploads these files.
+  build scripts. Archive timestamps are normalized for reproducible rebuilds;
+  native Yarn still selects the files and runs packing hooks.
+  `yarn-classic-purifier publish` uploads these files.
+- `runtimeGraph` holds the captured installed graph, with target and helper
+  runtime identities.
 - `fetches` lists the entries of the
   [purifier](https://github.com/nix-purifiers/purifier) library that the
   build fetches, for tools that read what a build downloads.
@@ -201,6 +205,41 @@ as `lockFile`. It can also keep its own copy of `yarn.lock` and pass it as
 given this way replaces any copy in `src`. The commands take
 `--lockfile <path>` for the purifier lockfile and `--tool-lockfile <path>`
 for `yarn.lock`; the Development loop section describes them.
+
+### Toolchain versions
+
+The project runtime (`node`), native Yarn package and graph inspector
+(`captureNode`) can be supplied separately:
+
+```nix
+(pkgs.yarn-classic-purifier.buildYarnClassicProject.override {
+  yarn = selectedYarn;
+}) {
+  src = ./.;
+  node = projectNode;
+  captureNode = pkgs.nodejs;
+}
+```
+
+`selectedYarn` and `projectNode` are caller-provided Nix packages. Yarn may run
+on a different Node than the project. A script shell keeps the selected target
+on PATH even when Yarn inserts its own Node proxy. Native-addon headers come
+from that target. Modern graph tooling only inspects the installed result;
+Yarn retains resolution and lifecycle behavior. `runtimeGraph/graph.json`
+records the target version/ABI/platform separately from the helper runtime.
+
+Regression points include Node 0.12.18 with Yarn 1.10.1 running on Node 4.9.1,
+Node 4.9.1 with Yarn 1.10.1, Node 12.22.12 with Yarn 1.22.22, and the pinned
+Node 26.1.0-rc.0 with Yarn 1.22.22. These points establish fixture behavior;
+they do not restrict user versions or prove every intervening release. Node
+0.12 is currently exercised only on x86_64 Linux. Other points have checks for
+both Linux architectures; execution evidence is recorded per system.
+
+`legacy-node-addon` additionally builds an N-API addon using Node 12 headers,
+runs it on Node 12, and installs its outgoing artifact in an ordinary offline
+npm 6 consumer. This does not establish old node-gyp or V8 C++ API compatibility.
+`tests/legacy-native.py` checks Node 12 lock/prefetch/offline install and
+workspace build/test without changing project source files.
 
 ### One-off builds without a project Nix file
 

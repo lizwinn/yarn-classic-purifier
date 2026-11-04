@@ -4,7 +4,7 @@
   "bin": { "legacy-app": "cli.js" },
   "dependencies": { "legacy-greeting": "1.0.0" },
   "scripts": {
-    "build": "node -e \"if(process.version !== 'v12.22.12') process.exit(1); require('fs').writeFileSync('built.txt', process.version)\"",
-    "test": "node -e \"if(require('legacy-greeting') !== 42) process.exit(1); require('fs').writeFileSync('tested.txt', process.version)\""
+    "build": "node -e \"require('fs').writeFileSync('built.txt', process.version)\"",
+    "test": "node -e \"if(require('legacy-greeting') !== 42 || require('fs').readFileSync('built.txt', 'utf8') !== process.version) process.exit(1)\""
   }
 }

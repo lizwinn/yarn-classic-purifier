@@ -1,50 +1,67 @@
 # SPDX-License-Identifier: MIT
 # An EOL target runtime, independent of the purifier's metadata tooling.
-{ pkgs, buildYarnClassicProject }:
+{
+  pkgs,
+  buildYarnClassicProject,
+  version ? "12.22.12",
+  abi ? "72",
+}:
 let
-  archives = {
-    x86_64-linux = {
-      arch = "x64";
-      sha256 = "e6d052364bfa2c17da92cf31794100cfd709ba147415ddaeed2222eec9ca1469";
-    };
-    aarch64-linux = {
-      arch = "arm64";
-      sha256 = "eebdeb528df727271635196188ed7d04a5dba2c61ccaded22f693ae501cf17f5";
-    };
-  };
-  archive = archives.${pkgs.stdenv.hostPlatform.system};
-  node = pkgs.stdenvNoCC.mkDerivation {
-    pname = "nodejs-legacy-fixture";
-    version = "12.22.12";
-    src = pkgs.fetchurl {
-      url = "https://nodejs.org/dist/v12.22.12/node-v12.22.12-linux-${archive.arch}.tar.xz";
-      inherit (archive) sha256;
-    };
-    nativeBuildInputs = [ pkgs.autoPatchelfHook ];
-    buildInputs = [ pkgs.stdenv.cc.cc.lib ];
-    dontConfigure = true;
-    dontBuild = true;
-    installPhase = ''
-      mkdir -p "$out"
-      cp -r bin include lib share "$out/"
-    '';
-  };
-  project = (buildYarnClassicProject.override {
-    yarn = pkgs.yarn.override { nodejs = node; };
-  }) {
-    src = ./fixtures/legacy-node;
-    inherit node;
-    nativeBuildInputs = [ ];
-  };
+  node = import ./node-fixture.nix { inherit pkgs version; };
+  managerNode =
+    if version == "0.12.18" then
+      import ./node-fixture.nix {
+        inherit pkgs;
+        version = "4.9.1";
+      }
+    else
+      node;
+  yarn = (pkgs.yarn.override { nodejs = managerNode; }).overrideAttrs (
+    pkgs.lib.optionalAttrs (version == "4.9.1" || version == "0.12.18") {
+      version = "1.10.1";
+      src = pkgs.fetchurl {
+        url = "https://github.com/yarnpkg/yarn/releases/download/v1.10.1/yarn-v1.10.1.tar.gz";
+        sha256 = "97bf147cb28229e66e4e3c5733a93c851bbcb0f10fbc72696ed011774f4c6f1b";
+      };
+    }
+  );
+  project =
+    (buildYarnClassicProject.override {
+      inherit yarn;
+    })
+      {
+        src = ./fixtures/legacy-node;
+        inherit node;
+        nativeBuildInputs = [ ];
+      };
 in
-pkgs.runCommand "yarn-classic-legacy-node"
-  { nativeBuildInputs = [ project.packages.legacy-app pkgs.python3 ]; }
+pkgs.runCommand "yarn-classic-node-${version}"
+  {
+    passthru = { inherit (project) release runtimeGraph; };
+    nativeBuildInputs = [
+      project.packages.legacy-app
+      pkgs.python3
+    ];
+  }
   ''
-    test "$(legacy-app)" = "42 on v12.22.12"
-    test -e ${project.tests}/packages/app/built.txt
-    test -e ${project.tests}/packages/app/tested.txt
+    test "$(legacy-app)" = "42 on v${version}"
+    test -e ${project.tests}
     test -e ${project.release}/legacy-app.tgz
     test -e ${project.release}/legacy-greeting.tgz
+    test "$(tar -xOf ${project.release}/legacy-app.tgz package/built.txt)" = v${version}
+    python - ${project.runtimeGraph}/graph.json <<'PY'
+    import json, sys
+    graph = json.load(open(sys.argv[1]))
+    assert graph['nodeVersion'] == '${version}'
+    ${
+      if abi == null then
+        "assert str(graph['nodeAbi']).isdigit()"
+      else
+        "assert graph['nodeAbi'] == '${abi}'"
+    }
+    assert graph['targetRuntime']['version'] != graph['helperRuntime']['version']
+    assert graph['os'] == 'linux'
+    PY
     python - ${project.packages.legacy-app.projections.npm.catalog} <<'PY'
     import json, sys
     catalog = json.load(open(sys.argv[1]))

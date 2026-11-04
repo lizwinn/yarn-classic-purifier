@@ -41,6 +41,8 @@
   python3,
   runCommand,
   writeText,
+  writeShellScript,
+  runtimeShell,
   nix,
   node-gyp,
   autoPatchelfHook,
@@ -74,6 +76,9 @@
   # The Node.js that runs Yarn and the project's scripts, and that the
   # packages' commands run on.
   node ? nodejs,
+  # Modern graph inspection tooling. It reads the installed tree; Yarn and
+  # project scripts continue to use `node` and their selected resolver.
+  captureNode ? nodejs,
   # The package scripts that build the project, run in order before the
   # packages are packed. A script the root package defines runs at the
   # root; otherwise it runs in each workspace that defines it.
@@ -156,7 +161,18 @@ let
   # libraries from the store; the install steps patch them.
   binaryPatching = lib.optionals stdenv.hostPlatform.isLinux [ autoPatchelfHook ];
   binaryLibraries = lib.optionals stdenv.hostPlatform.isLinux [ stdenv.cc.cc.lib ];
-  yarnSetup = steps.setup downloadMirror;
+  # Yarn creates a `node` proxy for its own interpreter in lifecycle PATH.
+  # Set the script shell's PATH explicitly so a separate manager runtime
+  # cannot silently replace the selected project runtime.
+  scriptShell = writeShellScript "yarn-project-script-shell" ''
+    export PATH=${node}/bin:"$PATH"
+    export NODE=${node}/bin/node
+    export npm_node_execpath=${node}/bin/node
+    exec ${runtimeShell} "$@"
+  '';
+  yarnSetup = steps.setup downloadMirror + ''
+    export YARN_SCRIPT_SHELL=${scriptShell}
+  '';
   yarnInstall =
     flags:
     lib.optionalString (dependencies != [ ]) ''
@@ -173,11 +189,11 @@ let
   # every workspace that defines it otherwise.
   runScript = ''
     runScript() {
-      if node -e 'process.exit(require("./package.json").scripts?.[process.argv[1]] ? 0 : 1)' "$1"; then
+      if node -e 'var scripts = require("./package.json").scripts; process.exit(scripts && scripts[process.argv[1]] ? 0 : 1)' "$1"; then
         yarn run "$1"
       else
         ${lib.concatMapStrings (p: ''
-          if node -e 'process.exit(require(process.argv[2] + "/package.json").scripts?.[process.argv[1]] ? 0 : 1)' "$1" ./${lib.escapeShellArg p.dir}; then
+          if node -e 'var scripts = require(process.argv[2] + "/package.json").scripts; process.exit(scripts && scripts[process.argv[1]] ? 0 : 1)' "$1" ./${lib.escapeShellArg p.dir}; then
             (cd ./${lib.escapeShellArg p.dir} && yarn run "$1")
           fi
         '') (builtins.filter (p: p.dir != "") ownPackages)}
@@ -232,8 +248,9 @@ let
     };
 
   # `yarn pack` runs the packages' prepack and postpack scripts, as
-  # `yarn publish` does. The tarballs are what Yarn publishes, byte for
-  # byte.
+  # `yarn publish` does. Normalize archive timestamps after the native
+  # packer chooses files and executes hooks; generated files otherwise
+  # carry wall-clock mtimes into the release.
   rawRelease = installed {
     name = "yarn-project-release";
     scripts = buildScripts;
@@ -241,6 +258,7 @@ let
       mkdir -p "$out"
       ${lib.concatMapStrings (p: ''
         (cd ./${lib.escapeShellArg p.dir} && yarn pack --offline --silent --filename "$out"/${lib.escapeShellArg (tarballName p)})
+        ${python3}/bin/python ${../../tools/archive_timestamps.py} "$out"/${lib.escapeShellArg (tarballName p)}
       '') ownPackages}
     '';
   };
@@ -267,12 +285,12 @@ let
       ${yarnSetup}
       for dir in ${lib.escapeShellArgs (map (p: if p.dir == "" then "." else p.dir) ownPackages)} .; do
         node -e '
-          const fs = require("fs");
-          const file = process.argv[1] + "/package.json";
-          const manifest = JSON.parse(fs.readFileSync(file, "utf8"));
-          for (const s of ["preinstall", "install", "postinstall", "prepublish", "preprepare", "prepare", "postprepare"]) {
-            delete manifest.scripts?.[s];
-          }
+          var fs = require("fs");
+          var file = process.argv[1] + "/package.json";
+          var manifest = JSON.parse(fs.readFileSync(file, "utf8"));
+          ["preinstall", "install", "postinstall", "prepublish", "preprepare", "prepare", "postprepare"].forEach(function (s) {
+            if (manifest.scripts) delete manifest.scripts[s];
+          });
           fs.writeFileSync(file, JSON.stringify(manifest, null, 2));
         ' "$dir"
       done
@@ -363,9 +381,10 @@ let
     name = "yarn-runtime-graph";
     scripts = buildScripts;
     install = ''
-      export NPM_PURIFIER_NPM_MODULES=${node}/lib/node_modules/npm/node_modules
+      export NPM_PURIFIER_NPM_MODULES=${captureNode}/lib/node_modules/npm/node_modules
+      export NPM_PURIFIER_TARGET_NODE=${node}/bin/node
       export NPM_PROJECTION_NIX=${nix}/bin/nix
-      node ${purifier.npmCaptureTool} "$PWD" ${rawRelease} "$out" ${
+      ${captureNode}/bin/node ${purifier.npmCaptureTool} "$PWD" ${rawRelease} "$out" ${
         writeText "yarn-own-packages.json" (
           builtins.toJSON (
             map (p: {
@@ -410,6 +429,8 @@ in
     install = "touch $out";
   };
   release = build;
+  # Captured native graph, including the selected target and helper runtimes.
+  runtimeGraph = capture;
   inherit projections;
   fetches = lock.entries;
 }

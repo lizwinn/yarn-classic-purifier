@@ -24,6 +24,8 @@
   # nixpkgs, and the system to build for.
   nixpkgs,
   system,
+  node,
+  yarn,
 }:
 ''
   rootsOf() {
@@ -40,6 +42,7 @@
   # Prints the SHA-256 of the lockfiles $1 and $2.
   stampOf() {
     {
+      printf '%s\n' ${node} ${yarn} ${flake} ${nixpkgs}
       cat "$1"
       cat "$2" 2> /dev/null || true
     } | sha256sum | cut -d' ' -f1
@@ -64,6 +67,8 @@
         import ${flake}/nix/lib/interactive.nix {
           purifier = (builtins.getFlake \"path:${flake}\").lib.purifier;
           pkgs = import ${nixpkgs} { system = \"${system}\"; };
+          node = builtins.storePath \"${node}\";
+          yarn = builtins.storePath \"${yarn}\";
           yarnLock = /. + builtins.getEnv \"YARN_CLASSIC_PURIFIER_LOCK\";
           lockFile = $lockExpr;
         }

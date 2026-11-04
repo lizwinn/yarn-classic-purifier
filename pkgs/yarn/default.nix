@@ -19,6 +19,8 @@
   lib,
   purifier,
   writeShellApplication,
+  writeShellScript,
+  runtimeShell,
   nodejs,
   node-gyp,
   python3,
@@ -31,6 +33,14 @@
   # `yarn` is this wrapper, so the argument has another name.
   yarnClassic ? pkgs.yarn,
 }:
+let
+  scriptShell = writeShellScript "yarn-project-script-shell" ''
+    export PATH=${nodejs}/bin:"$PATH"
+    export NODE=${nodejs}/bin/node
+    export npm_node_execpath=${nodejs}/bin/node
+    exec ${runtimeShell} "$@"
+  '';
+in
 writeShellApplication {
   name = "yarn";
   # Package scripts run `node`; they get the Node.js that runs Yarn. Install
@@ -58,6 +68,7 @@ writeShellApplication {
     if [ "''${YARN_CLASSIC_PURIFIER:-1}" = 0 ]; then
       exec "$yarn" "$@"
     fi
+    export YARN_SCRIPT_SHELL=${scriptShell}
 
     # The first argument that is not an option is Yarn's command.
     command=
@@ -93,6 +104,8 @@ writeShellApplication {
     ${import ../../nix/lib/mirror-script.nix {
       flake = ../..;
       nixpkgs = path;
+      node = nodejs;
+      yarn = yarnClassic;
       inherit (stdenv.hostPlatform) system;
     }}
 
