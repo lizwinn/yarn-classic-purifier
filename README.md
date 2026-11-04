@@ -208,6 +208,10 @@ for `yarn.lock`; the Development loop section describes them.
 
 ### Toolchain versions
 
+Native command packages retain the SDK recipe needed for later Nix evaluation.
+Tests check ordinary cache copying, selected outputs and evaluation without IFD;
+the SDK's arbitrary package passthru attributes are not reconstructed.
+
 The project runtime (`node`), native Yarn package and graph inspector
 (`captureNode`) can be supplied separately:
 

@@ -369,8 +369,8 @@ writeShellApplication {
               src = /. + builtins.getEnv \"YARN_CLASSIC_PURIFIER_SRC\";
               yarnLock = /. + builtins.getEnv \"YARN_CLASSIC_PURIFIER_YARN_LOCK\";
               lockFile = $purifier;
-              node = builtins.storePath \"${nodejs}\";
-              yarnClassic = builtins.storePath \"${yarnClassic}\";
+              node = ${(import ../../nix/lib/sdk-expression.nix nodejs).shell};
+              yarnClassic = ${(import ../../nix/lib/sdk-expression.nix yarnClassic).shell};
               package = builtins.getEnv \"YARN_CLASSIC_PURIFIER_PACKAGE\";
             }
           ")"

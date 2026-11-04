@@ -67,8 +67,8 @@
         import ${flake}/nix/lib/interactive.nix {
           purifier = (builtins.getFlake \"path:${flake}\").lib.purifier;
           pkgs = import ${nixpkgs} { system = \"${system}\"; };
-          node = builtins.storePath \"${node}\";
-          yarn = builtins.storePath \"${yarn}\";
+          node = ${(import ./sdk-expression.nix node).shell};
+          yarn = ${(import ./sdk-expression.nix yarn).shell};
           yarnLock = /. + builtins.getEnv \"YARN_CLASSIC_PURIFIER_LOCK\";
           lockFile = $lockExpr;
         }
