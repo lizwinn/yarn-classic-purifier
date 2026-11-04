@@ -1,0 +1,6 @@
+{
+  "name": "legacy-root",
+  "private": true,
+  "workspaces": ["packages/*"],
+  "scripts": { "postinstall": "node -e \"require('fs').writeFileSync('installed.txt', process.version)\"" }
+}

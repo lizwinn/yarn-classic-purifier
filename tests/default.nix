@@ -145,6 +145,7 @@ let
       }).problems;
 in
 {
+  legacy-node = import ./legacy-node.nix { inherit pkgs buildYarnClassicProject; };
   composition-producer = workspaces.packages."@fixture/greet";
   npm-projection =
     pkgs.runCommand "yarn-classic-npm-projection"
